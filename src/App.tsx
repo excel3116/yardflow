@@ -587,7 +587,7 @@ function WelcomeModal({ onClose }) {
           <Sparkles size={16} className="text-[#4C8CF5]" />
           <span className="text-[11px] uppercase tracking-wide text-[#6B7686] font-medium">Live demo</span>
         </div>
-        <h2 className="font-[Barlow_Condensed] text-[26px] font-bold text-[#EDF1F5] tracking-wide mb-2">Welcome to YARDFLOW</h2>
+        <h2 className="font-[Barlow_Condensed] text-[26px] font-bold text-[#EDF1F5] tracking-wide mb-2">Welcome to ATCON</h2>
         <p className="text-[13px] text-[#8A93A3] leading-relaxed mb-5">
           This is a live view of how a truck moves through the yard — from gate entry, through weighment
           and unloading, to final exit and QC sign-off. Switch roles to see exactly what each person on
@@ -768,8 +768,12 @@ export default function App() {
       status_at: new Date(at).toISOString(),
       history: [{ status: "Expected", at }],
     };
-    const { error } = await supabase.from("vehicles").insert(row);
-    if (error) setConnectionError(error.message);
+    const { data, error } = await supabase.from("vehicles").insert(row).select();
+    if (error) {
+      setConnectionError(error.message);
+    } else if (data && data[0]) {
+      setVehicles((vs) => (vs.some((v) => v.id === data[0].id) ? vs : [rowToVehicle(data[0]), ...vs]));
+    }
     setShowAddModal(false);
   }, []);
 
@@ -798,8 +802,9 @@ export default function App() {
       update = { status: action.outcome, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.outcome, at }], flagged: false, flag_reason: null, flagged_at: null };
     }
 
-    const { error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id);
+    const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
     if (error) setConnectionError(error.message);
+    else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
     setSelectedVehicle(null);
   }, []);
 
@@ -815,8 +820,9 @@ export default function App() {
       history: [...(weighingVehicle.history || []), { status: "Unloaded", at }],
       flagged: false, flag_reason: null, flagged_at: null,
     };
-    const { error } = await supabase.from("vehicles").update(update).eq("id", weighingVehicle.id);
+    const { data, error } = await supabase.from("vehicles").update(update).eq("id", weighingVehicle.id).select();
     if (error) setConnectionError(error.message);
+    else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
     setWeighingVehicle(null);
     setSelectedVehicle(null);
   }, [weighingVehicle]);
@@ -824,13 +830,15 @@ export default function App() {
   const handleFlag = useCallback(async (vehicle) => {
     const reason = window.prompt(`Mark "${vehicle.vehicleNumber}" as not reached / not done yet.\n\nOptional short reason:`, "");
     if (reason === null) return;
-    const { error } = await supabase.from("vehicles").update({ flagged: true, flag_reason: reason || null, flagged_at: new Date().toISOString() }).eq("id", vehicle.id);
+    const { data, error } = await supabase.from("vehicles").update({ flagged: true, flag_reason: reason || null, flagged_at: new Date().toISOString() }).eq("id", vehicle.id).select();
     if (error) setConnectionError(error.message);
+    else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
   }, []);
 
   const handleClearFlag = useCallback(async (vehicle) => {
-    const { error } = await supabase.from("vehicles").update({ flagged: false, flag_reason: null, flagged_at: null }).eq("id", vehicle.id);
+    const { data, error } = await supabase.from("vehicles").update({ flagged: false, flag_reason: null, flagged_at: null }).eq("id", vehicle.id).select();
     if (error) setConnectionError(error.message);
+    else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
   }, []);
 
   const handleClearAll = useCallback(async () => {
@@ -860,7 +868,7 @@ export default function App() {
               <Truck size={17} className="text-[#08111F]" />
             </div>
             <div>
-              <div className="font-[Barlow_Condensed] text-[19px] font-bold leading-none tracking-wide">YARDFLOW</div>
+              <div className="font-[Barlow_Condensed] text-[19px] font-bold leading-none tracking-wide">ATCON</div>
               <div className="text-[10px] text-[#5A6270] leading-none mt-0.5 flex items-center gap-1">
                 {connectionError ? (<><WifiOff size={10} className="text-[#FF5C5C]" /> Connection issue</>) : (<><Wifi size={10} className="text-[#3ECF8E]" /> Live · connected</>)}
               </div>
