@@ -709,12 +709,7 @@ export default function App() {
       const { data, error } = await supabase.from("vehicles").select("*");
       if (!active) return;
       if (error) { setConnectionError(error.message); setLoading(false); return; }
-      if (data.length === 0) {
-        const { data: seeded, error: seedError } = await supabase.from("vehicles").insert(buildSeedRows()).select();
-        if (!seedError && seeded) setVehicles(seeded.map(rowToVehicle));
-      } else {
-        setVehicles(data.map(rowToVehicle));
-      }
+      setVehicles(data.map(rowToVehicle));
       setLoading(false);
     }
     load();
@@ -838,13 +833,12 @@ export default function App() {
     if (error) setConnectionError(error.message);
   }, []);
 
-  const handleResetDemo = useCallback(async () => {
-    if (!window.confirm("Reset all demo data back to the starting scenario? This clears every vehicle currently in the system.")) return;
+  const handleClearAll = useCallback(async () => {
+    if (!window.confirm("Delete every vehicle currently in the system? This cannot be undone.")) return;
     setResetting(true);
     const { data: existing } = await supabase.from("vehicles").select("id");
     if (existing && existing.length) await supabase.from("vehicles").delete().in("id", existing.map((r) => r.id));
-    const { data: seeded } = await supabase.from("vehicles").insert(buildSeedRows()).select();
-    if (seeded) setVehicles(seeded.map(rowToVehicle));
+    setVehicles([]);
     setResetting(false);
   }, []);
 
@@ -898,9 +892,9 @@ export default function App() {
               </button>
             )}
             {isAdmin && (
-              <button onClick={handleResetDemo} disabled={resetting} title="Restore the starting demo scenario"
+              <button onClick={handleClearAll} disabled={resetting} title="Delete all vehicles from the system"
                 className="flex items-center gap-1.5 rounded-[6px] border border-[#242B34] px-3 py-1.5 text-[13px] text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors disabled:opacity-50">
-                <RotateCcw size={14} className={resetting ? "animate-spin" : ""} /> {resetting ? "Resetting…" : "Reset demo"}
+                <RotateCcw size={14} className={resetting ? "animate-spin" : ""} /> {resetting ? "Clearing…" : "Clear all"}
               </button>
             )}
           </div>
