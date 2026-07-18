@@ -20,10 +20,10 @@ const DESTINATIONS = ["MTC Nanekarwadi", "MTC Kharabwadi", "MTC Talawade"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
 
 // Lifecycle: Expected -> Arrived -> Yard Assigned -> Unloaded -> Exited -> Completed | Refill Pending
-const WAITING_STAGES = ["Arrived", "Yard Assigned", "Unloaded", "Exited"];
+const WAITING_STAGES = ["Arrived", "Yard Assigned", "Loading", "Unloaded", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
-// type: "advance" (simple move to next status), "assignYard", "weighModal", "exitApprove", "finalize"
+// type: "advance" (simple move to next status), "assignYard", "exitApprove", "finalize"
 const STATUS_ACTIONS = {
   Expected: [
     { role: "Security", label: "Allow Inside", icon: ShieldCheck, type: "advance", next: "Arrived" },
@@ -32,7 +32,10 @@ const STATUS_ACTIONS = {
     { role: "Yard Supervisor", label: "Assign Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
   ],
   "Yard Assigned": [
-    { role: "Loading Supervisor", label: "Record Weighment", icon: Scale, type: "weighModal" },
+    { role: "Loading Supervisor", label: "Load", icon: PackageCheck, type: "advance", next: "Loading" },
+  ],
+  Loading: [
+    { role: "Loading Supervisor", label: "Unload", icon: PackageCheck, type: "advance", next: "Unloaded" },
   ],
   Unloaded: [
     { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
@@ -186,7 +189,8 @@ const DASHBOARD_CARDS = [
   { key: "Expected", label: "Expected today", icon: Clock, filter: (v) => v.status === "Expected" },
   { key: "Inside", label: "Inside plant", icon: Truck, filter: (v) => !["Expected", "Completed", "Refill Pending"].includes(v.status) },
   { key: "YardWait", label: "Awaiting yard assignment", icon: Warehouse, filter: (v) => v.status === "Arrived" },
-  { key: "WeighWait", label: "Awaiting weighment", icon: Scale, filter: (v) => v.status === "Yard Assigned", pulse: true },
+  { key: "LoadWait", label: "Awaiting load", icon: PackageCheck, filter: (v) => v.status === "Yard Assigned", pulse: true },
+  { key: "Unloading", label: "Unloading in progress", icon: PackageCheck, filter: (v) => v.status === "Loading", pulse: true },
   { key: "ExitWait", label: "Awaiting exit approval", icon: LogOut, filter: (v) => v.status === "Unloaded", pulse: true },
   { key: "QCPending", label: "Awaiting QC decision", icon: ClipboardList, filter: (v) => v.status === "Exited" },
   { key: "Completed", label: "Completed today", icon: CheckCircle2, filter: (v) => v.status === "Completed" },
@@ -279,68 +283,6 @@ function AddVehicleModal({ onClose, onCreate }) {
   );
 }
 
-function WeighmentModal({ vehicle, onClose, onSubmit }) {
-  const [gross, setGross] = useState("");
-  const [tare, setTare] = useState("");
-  const net = gross && tare ? Number(gross) - Number(tare) : null;
-  const variance = net != null && vehicle.partyNetWeight ? net - vehicle.partyNetWeight : null;
-
-  const submit = (e) => {
-    e.preventDefault();
-    if (!gross || !tare) return;
-    onSubmit({ grossWeight: Number(gross), tareWeight: Number(tare), netWeight: Number(gross) - Number(tare) });
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-[8px] border border-[#2A323D] bg-[#14181E] p-5 shadow-2xl">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="font-[Barlow_Condensed] text-[20px] font-bold text-[#EDF1F5] tracking-wide">Record weighment</h3>
-          <button type="button" onClick={onClose} className="text-[#6B7686] hover:text-[#EDF1F5]"><X size={18} /></button>
-        </div>
-        <div className="font-mono text-[13px] text-[#7CACF8] mb-4">{vehicle.vehicleNumber}</div>
-
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label className="block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1">Gross weight (kg)</label>
-            <input autoFocus type="number" value={gross} onChange={(e) => setGross(e.target.value)}
-              className="w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] font-mono text-sm focus:outline-none focus:border-[#4C8CF5]" />
-          </div>
-          <div>
-            <label className="block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1">Tare weight (kg)</label>
-            <input type="number" value={tare} onChange={(e) => setTare(e.target.value)}
-              className="w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] font-mono text-sm focus:outline-none focus:border-[#4C8CF5]" />
-          </div>
-        </div>
-
-        <div className="rounded-[6px] border border-[#242B34] bg-[#161B22] px-3 py-2.5 mb-4">
-          <div className="flex justify-between text-[12px] mb-1">
-            <span className="text-[#6B7686]">Net weight (measured)</span>
-            <span className="font-mono text-[#EDF1F5] font-bold">{net != null ? net.toLocaleString("en-IN") + " kg" : "—"}</span>
-          </div>
-          <div className="flex justify-between text-[12px] mb-1">
-            <span className="text-[#6B7686]">Party's declared net weight</span>
-            <span className="font-mono text-[#8A93A3]">{vehicle.partyNetWeight ? vehicle.partyNetWeight.toLocaleString("en-IN") + " kg" : "—"}</span>
-          </div>
-          {variance != null && (
-            <div className="flex justify-between text-[12px] pt-1 mt-1 border-t border-dashed border-[#2A323D]">
-              <span className="text-[#6B7686]">Variance</span>
-              <span className={`font-mono font-bold ${Math.abs(variance) > 200 ? "text-[#FF5C5C]" : "text-[#3ECF8E]"}`}>
-                {variance > 0 ? "+" : ""}{variance.toLocaleString("en-IN")} kg
-              </span>
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-2">
-          <button type="button" onClick={onClose} className="flex-1 rounded-[4px] border border-[#2A323D] py-2 text-sm text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors">Cancel</button>
-          <button type="submit" className="flex-1 rounded-[4px] bg-[#4C8CF5] py-2 text-sm font-semibold text-[#08111F] hover:bg-[#659BF7] transition-colors">Confirm unloaded</button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
 function Field({ label, value, mono }) {
   return (
     <div>
@@ -416,7 +358,6 @@ function ActionButtons({ vehicle, role, onAdvance, onFlag, onClearFlag, compact 
 function DetailDrawer({ vehicle, role, onClose, onAdvance, onFlag, onClearFlag }) {
   if (!vehicle) return null;
   const sc = statusColor(vehicle.status);
-  const netVariance = vehicle.netWeight != null && vehicle.partyNetWeight ? vehicle.netWeight - vehicle.partyNetWeight : null;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60">
@@ -442,23 +383,11 @@ function DetailDrawer({ vehicle, role, onClose, onAdvance, onFlag, onClearFlag }
               <Field label="Destination" value={vehicle.destination} />
               <Field label="PO number" value={vehicle.po} mono />
               <Field label="Invoice no." value={vehicle.invoiceNo} mono />
+              <Field label="Party net weight" value={vehicle.partyNetWeight ? `${vehicle.partyNetWeight.toLocaleString("en-IN")} kg` : null} mono />
               <Field label="Driver" value={vehicle.driver} />
               <Field label="Mobile" value={vehicle.mobile} mono />
               {vehicle.yard && <Field label="Yard slot" value={vehicle.yard} />}
             </div>
-
-            <div className="border-t border-dashed border-[#2A323D] my-3" />
-            <div className="grid grid-cols-4 gap-2">
-              <WeightReadout label="Party net" value={vehicle.partyNetWeight} />
-              <WeightReadout label="Gross" value={vehicle.grossWeight} />
-              <WeightReadout label="Tare" value={vehicle.tareWeight} />
-              <WeightReadout label="Net (actual)" value={vehicle.netWeight} highlight={netVariance != null && Math.abs(netVariance) <= 200} warn={netVariance != null && Math.abs(netVariance) > 200} />
-            </div>
-            {netVariance != null && (
-              <div className={`text-[11px] mt-2 text-center font-mono ${Math.abs(netVariance) > 200 ? "text-[#FF5C5C]" : "text-[#6B7686]"}`}>
-                Variance vs party's declared weight: {netVariance > 0 ? "+" : ""}{netVariance.toLocaleString("en-IN")} kg
-              </div>
-            )}
           </div>
 
           {vehicle.flagged && !["Completed", "Refill Pending"].includes(vehicle.status) && (
@@ -686,7 +615,6 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [weighingVehicle, setWeighingVehicle] = useState(null);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -780,11 +708,6 @@ export default function App() {
   const handleAdvance = useCallback(async (vehicle, action) => {
     const at = Date.now();
 
-    if (action.type === "weighModal") {
-      setWeighingVehicle(vehicle);
-      return;
-    }
-
     let update = {};
 
     if (action.type === "advance") {
@@ -807,25 +730,6 @@ export default function App() {
     else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
     setSelectedVehicle(null);
   }, []);
-
-  const handleWeighmentSubmit = useCallback(async ({ grossWeight, tareWeight, netWeight }) => {
-    if (!weighingVehicle) return;
-    const at = Date.now();
-    const update = {
-      status: "Unloaded",
-      status_at: new Date(at).toISOString(),
-      gross_weight: grossWeight,
-      tare_weight: tareWeight,
-      net_weight: netWeight,
-      history: [...(weighingVehicle.history || []), { status: "Unloaded", at }],
-      flagged: false, flag_reason: null, flagged_at: null,
-    };
-    const { data, error } = await supabase.from("vehicles").update(update).eq("id", weighingVehicle.id).select();
-    if (error) setConnectionError(error.message);
-    else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
-    setWeighingVehicle(null);
-    setSelectedVehicle(null);
-  }, [weighingVehicle]);
 
   const handleFlag = useCallback(async (vehicle) => {
     const reason = window.prompt(`Mark "${vehicle.vehicleNumber}" as not reached / not done yet.\n\nOptional short reason:`, "");
@@ -852,6 +756,11 @@ export default function App() {
 
   const isAdmin = role === "Admin";
 
+  const securityApprovedCount = useMemo(
+    () => vehicles.filter((v) => (v.history || []).some((h) => h.status === "Arrived")).length,
+    [vehicles]
+  );
+
   return (
     <div className="w-full min-h-[600px] bg-[#0E1116] text-[#EDF1F5]" style={{ fontFamily: "Inter, sans-serif" }}>
       <style>{`
@@ -872,6 +781,11 @@ export default function App() {
               <div className="text-[10px] text-[#5A6270] leading-none mt-0.5 flex items-center gap-1">
                 {connectionError ? (<><WifiOff size={10} className="text-[#FF5C5C]" /> Connection issue</>) : (<><Wifi size={10} className="text-[#3ECF8E]" /> Live · connected</>)}
               </div>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-[6px] border border-[#242B34] bg-[#161B22] px-2.5 py-1.5 ml-2">
+              <ShieldCheck size={14} className="text-[#3ECF8E]" />
+              <span className="font-mono text-[13px] font-bold text-[#EDF1F5]">{securityApprovedCount}</span>
+              <span className="text-[11px] text-[#8A93A3]">approved into yard</span>
             </div>
           </div>
 
@@ -1035,7 +949,6 @@ export default function App() {
         />
       )}
       {showAddModal && <AddVehicleModal onClose={() => setShowAddModal(false)} onCreate={handleCreate} />}
-      {weighingVehicle && <WeighmentModal vehicle={weighingVehicle} onClose={() => setWeighingVehicle(null)} onSubmit={handleWeighmentSubmit} />}
       {showWelcome && <WelcomeModal onClose={dismissWelcome} />}
     </div>
   );
