@@ -535,6 +535,83 @@ function WelcomeModal({ onClose }) {
 // Role queue view — what Security / Yard / Loading / QC see (no dashboard)
 // ---------------------------------------------------------------------------
 
+const ACTION_LABELS = {
+  Expected: "Created trip",
+  Arrived: "Allowed inside",
+  "Yard Assigned": "Assigned yard",
+  Loading: "Marked loading",
+  Unloaded: "Marked unloaded",
+  "Exit Approval": "Approved exit",
+  Exited: "Exit finalized",
+  Completed: "Marked completed",
+  "Refill Pending": "Sent for refill",
+  Flagged: "Flagged as not done",
+  "Flag Cleared": "Cleared flag",
+};
+
+function HistoryView({ vehicles, roleFilter }) {
+  const entries = useMemo(() => {
+    const list = [];
+    vehicles.forEach((v) => {
+      (v.history || []).forEach((h) => {
+        if (!h.role) return; // system-level entries with no single actor, skip in personal/role logs
+        if (roleFilter && h.role !== roleFilter) return;
+        list.push({ ...h, vehicleNumber: v.vehicleNumber, vendor: v.vendor });
+      });
+    });
+    return list.sort((a, b) => b.at - a.at);
+  }, [vehicles, roleFilter]);
+
+  return (
+    <div>
+      <div className="mb-4">
+        <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">
+          {roleFilter ? `${roleFilter} — history` : "Full activity history"}
+        </div>
+        <div className="text-[12px] text-[#8A93A3]">
+          {roleFilter ? "Only actions you've personally taken are shown here." : "Every action taken by every role."}
+        </div>
+      </div>
+      <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
+        <table className="w-full text-[13px] min-w-[700px]">
+          <thead>
+            <tr className="bg-[#161B22] text-[#6B7686] text-[11px] uppercase tracking-wide">
+              <th className="text-left px-4 py-2.5 font-medium">When</th>
+              <th className="text-left px-4 py-2.5 font-medium">Vehicle</th>
+              {!roleFilter && <th className="text-left px-4 py-2.5 font-medium">Role</th>}
+              <th className="text-left px-4 py-2.5 font-medium">Action</th>
+              <th className="text-left px-4 py-2.5 font-medium">Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e, i) => (
+              <tr key={i} className="border-t border-[#242B34]">
+                <td className="px-4 py-2.5 font-mono text-[11px] text-[#8A93A3]">{formatDateTime(e.at)}</td>
+                <td className="px-4 py-2.5 font-mono text-[13px] font-bold text-[#EDF1F5]">{e.vehicleNumber}</td>
+                {!roleFilter && <td className="px-4 py-2.5 text-[#DCE2E8]">{e.role}</td>}
+                <td className="px-4 py-2.5 text-[#DCE2E8]">
+                  {ACTION_LABELS[e.status] || e.status}
+                  {e.note && <span className="text-[11px] text-[#6B7686]"> — {e.note}</span>}
+                </td>
+                <td className="px-4 py-2.5">
+                  {e.outcome === "not-approved" ? (
+                    <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Not approved</Pill>
+                  ) : (
+                    <Pill fg="#3ECF8E" bg="#122A22" bd="#1E4A3A">Approved</Pill>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {entries.length === 0 && (
+              <tr><td colSpan={roleFilter ? 4 : 5} className="px-4 py-10 text-center text-[#5A6270] text-[13px]">No history yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, onSelect }) {
   const relevant = useMemo(
     () => vehicles.filter((v) => actionsFor(v, role).length > 0).sort((a, b) => a.statusAt - b.statusAt),
@@ -694,7 +771,7 @@ export default function App() {
       party_net_weight: form.partyNetWeight ? Number(form.partyNetWeight) : null,
       status: "Expected",
       status_at: new Date(at).toISOString(),
-      history: [{ status: "Expected", at }],
+      history: [{ status: "Expected", at, role, outcome: "approved" }],
     };
     const { data, error } = await supabase.from("vehicles").insert(row).select();
     if (error) {
@@ -703,47 +780,67 @@ export default function App() {
       setVehicles((vs) => (vs.some((v) => v.id === data[0].id) ? vs : [rowToVehicle(data[0]), ...vs]));
     }
     setShowAddModal(false);
-  }, []);
+  }, [role]);
 
   const handleAdvance = useCallback(async (vehicle, action) => {
     const at = Date.now();
+    const actor = role === "Admin" ? action.role : role;
 
     let update = {};
 
     if (action.type === "advance") {
-      update = { status: action.next, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.next, at }], flagged: false, flag_reason: null, flagged_at: null };
+      update = { status: action.next, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
     } else if (action.type === "assignYard") {
-      update = { status: action.next, status_at: new Date(at).toISOString(), yard: YARDS[randomBetween(0, YARDS.length - 1)], history: [...(vehicle.history || []), { status: action.next, at }], flagged: false, flag_reason: null, flagged_at: null };
+      update = { status: action.next, status_at: new Date(at).toISOString(), yard: YARDS[randomBetween(0, YARDS.length - 1)], history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
     } else if (action.type === "exitApprove") {
       const otherApproved = action.approverKey === "securityExitApproved" ? vehicle.yardExitApproved : vehicle.securityExitApproved;
+      const approvalEntry = { status: "Exit Approval", at, role: action.approverLabel, outcome: "approved" };
       if (otherApproved) {
-        update = { status: "Exited", status_at: new Date(at).toISOString(), [action.approverKey === "securityExitApproved" ? "security_exit_approved" : "yard_exit_approved"]: true, history: [...(vehicle.history || []), { status: "Exited", at }], flagged: false, flag_reason: null, flagged_at: null };
+        update = {
+          status: "Exited", status_at: new Date(at).toISOString(),
+          [action.approverKey === "securityExitApproved" ? "security_exit_approved" : "yard_exit_approved"]: true,
+          history: [...(vehicle.history || []), approvalEntry, { status: "Exited", at, role: null, outcome: "approved" }],
+          flagged: false, flag_reason: null, flagged_at: null,
+        };
       } else {
-        update = { [action.approverKey === "securityExitApproved" ? "security_exit_approved" : "yard_exit_approved"]: true };
+        update = {
+          [action.approverKey === "securityExitApproved" ? "security_exit_approved" : "yard_exit_approved"]: true,
+          history: [...(vehicle.history || []), approvalEntry],
+        };
       }
     } else if (action.type === "finalize") {
-      update = { status: action.outcome, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.outcome, at }], flagged: false, flag_reason: null, flagged_at: null };
+      update = { status: action.outcome, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.outcome, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
     }
 
     const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
     if (error) setConnectionError(error.message);
     else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
     setSelectedVehicle(null);
-  }, []);
+  }, [role]);
 
   const handleFlag = useCallback(async (vehicle) => {
     const reason = window.prompt(`Mark "${vehicle.vehicleNumber}" as not reached / not done yet.\n\nOptional short reason:`, "");
     if (reason === null) return;
-    const { data, error } = await supabase.from("vehicles").update({ flagged: true, flag_reason: reason || null, flagged_at: new Date().toISOString() }).eq("id", vehicle.id).select();
+    const at = Date.now();
+    const update = {
+      flagged: true, flag_reason: reason || null, flagged_at: new Date(at).toISOString(),
+      history: [...(vehicle.history || []), { status: "Flagged", at, role, outcome: "not-approved", note: reason || null }],
+    };
+    const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
     if (error) setConnectionError(error.message);
     else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
-  }, []);
+  }, [role]);
 
   const handleClearFlag = useCallback(async (vehicle) => {
-    const { data, error } = await supabase.from("vehicles").update({ flagged: false, flag_reason: null, flagged_at: null }).eq("id", vehicle.id).select();
+    const at = Date.now();
+    const update = {
+      flagged: false, flag_reason: null, flagged_at: null,
+      history: [...(vehicle.history || []), { status: "Flag Cleared", at, role, outcome: "approved" }],
+    };
+    const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
     if (error) setConnectionError(error.message);
     else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
-  }, []);
+  }, [role]);
 
   const handleClearAll = useCallback(async () => {
     if (!window.confirm("Delete every vehicle currently in the system? This cannot be undone.")) return;
@@ -755,11 +852,6 @@ export default function App() {
   }, []);
 
   const isAdmin = role === "Admin";
-
-  const securityApprovedCount = useMemo(
-    () => vehicles.filter((v) => (v.history || []).some((h) => h.status === "Arrived")).length,
-    [vehicles]
-  );
 
   return (
     <div className="w-full min-h-[600px] bg-[#0E1116] text-[#EDF1F5]" style={{ fontFamily: "Inter, sans-serif" }}>
@@ -782,17 +874,12 @@ export default function App() {
                 {connectionError ? (<><WifiOff size={10} className="text-[#FF5C5C]" /> Connection issue</>) : (<><Wifi size={10} className="text-[#3ECF8E]" /> Live · connected</>)}
               </div>
             </div>
-            <div className="flex items-center gap-1.5 rounded-[6px] border border-[#242B34] bg-[#161B22] px-2.5 py-1.5 ml-2">
-              <ShieldCheck size={14} className="text-[#3ECF8E]" />
-              <span className="font-mono text-[13px] font-bold text-[#EDF1F5]">{securityApprovedCount}</span>
-              <span className="text-[11px] text-[#8A93A3]">approved into yard</span>
-            </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 rounded-[6px] border border-[#242B34] bg-[#161B22] px-2.5 py-1.5">
               <User size={14} className="text-[#6B7686]" />
-              <select value={role} onChange={(e) => { setRole(e.target.value); setFilterKey(null); }} className="bg-transparent text-[13px] text-[#EDF1F5] focus:outline-none">
+              <select value={role} onChange={(e) => { setRole(e.target.value); setFilterKey(null); setView(e.target.value === "Admin" ? "dashboard" : "queue"); }} className="bg-transparent text-[13px] text-[#EDF1F5] focus:outline-none">
                 {ROLES.map((r) => <option key={r} value={r} className="bg-[#161B22]">{r}</option>)}
               </select>
             </div>
@@ -804,6 +891,20 @@ export default function App() {
                 </button>
                 <button onClick={() => setView("reports")} className={`px-3 py-1.5 text-[13px] flex items-center gap-1.5 ${view === "reports" ? "bg-[#4C8CF5] text-[#08111F] font-semibold" : "text-[#8A93A3] hover:bg-[#161B22]"}`}>
                   <BarChart3 size={14} /> Reports
+                </button>
+                <button onClick={() => setView("history")} className={`px-3 py-1.5 text-[13px] flex items-center gap-1.5 ${view === "history" ? "bg-[#4C8CF5] text-[#08111F] font-semibold" : "text-[#8A93A3] hover:bg-[#161B22]"}`}>
+                  <ClipboardList size={14} /> History
+                </button>
+              </div>
+            )}
+
+            {!isAdmin && (
+              <div className="flex rounded-[6px] border border-[#242B34] overflow-hidden">
+                <button onClick={() => setView("queue")} className={`px-3 py-1.5 text-[13px] flex items-center gap-1.5 ${view === "queue" ? "bg-[#4C8CF5] text-[#08111F] font-semibold" : "text-[#8A93A3] hover:bg-[#161B22]"}`}>
+                  <Gauge size={14} /> Queue
+                </button>
+                <button onClick={() => setView("history")} className={`px-3 py-1.5 text-[13px] flex items-center gap-1.5 ${view === "history" ? "bg-[#4C8CF5] text-[#08111F] font-semibold" : "text-[#8A93A3] hover:bg-[#161B22]"}`}>
+                  <ClipboardList size={14} /> History
                 </button>
               </div>
             )}
@@ -833,7 +934,9 @@ export default function App() {
         {loading ? (
           <div className="text-center py-20 text-[#5A6270] text-sm">Loading vehicles from database…</div>
         ) : !isAdmin ? (
-          role === "Vendor" ? (
+          view === "history" ? (
+            <HistoryView vehicles={vehicles} roleFilter={role} />
+          ) : role === "Vendor" ? (
             <div>
               <div className="mb-4">
                 <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Your trips</div>
@@ -866,6 +969,8 @@ export default function App() {
           ) : (
             <RoleQueueView role={role} vehicles={vehicles} now={now} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag} onSelect={setSelectedVehicle} />
           )
+        ) : view === "history" ? (
+          <HistoryView vehicles={vehicles} roleFilter={null} />
         ) : view === "dashboard" ? (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-2.5 mb-5">
