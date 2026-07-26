@@ -1142,7 +1142,7 @@ export default function App() {
 
   const loadProfile = useCallback(async (currentSession) => {
     if (!currentSession) { setProfile(null); return; }
-    const { data, error } = await supabase.from("profiles").select("*").eq("id", currentSession.user.id).single();
+    const { data, error } = await supabase.from("profiles").select("*").eq("user_id", currentSession.user.id).single();
     if (error || !data) {
       setProfileError("Your account doesn't have a role assigned yet. Contact your admin.");
       setProfile(null);
