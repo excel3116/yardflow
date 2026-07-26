@@ -680,12 +680,11 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
 // Main app
 // ---------------------------------------------------------------------------
 
-export default function App() {
+function Dashboard({ role, profile, onLogout }) {
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
-  const [role, setRole] = useState("Admin");
-  const [view, setView] = useState("dashboard");
+  const [view, setView] = useState(role === "Admin" ? "dashboard" : "queue");
   const [filterKey, setFilterKey] = useState(null);
   const [search, setSearch] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState(null);
@@ -879,10 +878,15 @@ export default function App() {
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 rounded-[6px] border border-[#242B34] bg-[#161B22] px-2.5 py-1.5">
               <User size={14} className="text-[#6B7686]" />
-              <select value={role} onChange={(e) => { setRole(e.target.value); setFilterKey(null); setView(e.target.value === "Admin" ? "dashboard" : "queue"); }} className="bg-transparent text-[13px] text-[#EDF1F5] focus:outline-none">
-                {ROLES.map((r) => <option key={r} value={r} className="bg-[#161B22]">{r}</option>)}
-              </select>
+              <div className="text-[13px] text-[#EDF1F5] leading-tight">
+                <div className="font-medium">{profile.full_name || profile.email}</div>
+                <div className="text-[10px] text-[#6B7686]">{role}</div>
+              </div>
             </div>
+            <button onClick={onLogout} title="Log out"
+              className="flex items-center gap-1.5 rounded-[6px] border border-[#242B34] px-2.5 py-1.5 text-[12px] text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors">
+              <LogOut size={13} /> Log out
+            </button>
 
             {isAdmin && (
               <div className="flex rounded-[6px] border border-[#242B34] overflow-hidden">
@@ -1057,4 +1061,140 @@ export default function App() {
       {showWelcome && <WelcomeModal onClose={dismissWelcome} />}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Login screen
+// ---------------------------------------------------------------------------
+
+function LoginScreen({ onSignedIn }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSubmitting(true);
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    setSubmitting(false);
+    if (signInError) {
+      setError("Incorrect email or password.");
+      return;
+    }
+    onSignedIn(data.session);
+  };
+
+  return (
+    <div className="w-full min-h-[600px] bg-[#0E1116] text-[#EDF1F5] flex items-center justify-center px-4" style={{ fontFamily: "Inter, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap');
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+      `}</style>
+      <form onSubmit={submit} className="w-full max-w-sm rounded-[10px] border border-[#242B34] bg-[#14181E] p-6 shadow-2xl">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div className="w-9 h-9 rounded-[6px] bg-[#4C8CF5] flex items-center justify-center">
+            <Truck size={19} className="text-[#08111F]" />
+          </div>
+          <div>
+            <div className="font-[Barlow_Condensed] text-[20px] font-bold leading-none tracking-wide">YARDFLOW</div>
+            <div className="text-[10px] text-[#5A6270] leading-none mt-0.5">by ATCON Systems</div>
+          </div>
+        </div>
+
+        <div className="space-y-3 mb-2">
+          <div>
+            <label className="block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1">Email</label>
+            <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] text-sm focus:outline-none focus:border-[#4C8CF5]" />
+          </div>
+          <div>
+            <label className="block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1">Password</label>
+            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] text-sm focus:outline-none focus:border-[#4C8CF5]" />
+          </div>
+        </div>
+
+        {error && <div className="text-[12px] text-[#FF5C5C] mb-3">{error}</div>}
+
+        <button type="submit" disabled={submitting}
+          className="w-full rounded-[6px] bg-[#4C8CF5] py-2.5 text-sm font-semibold text-[#08111F] hover:bg-[#659BF7] transition-colors disabled:opacity-60 mt-1">
+          {submitting ? "Signing in…" : "Sign in"}
+        </button>
+        <div className="text-[11px] text-[#5A6270] text-center mt-4">
+          Accounts are created by your administrator. Contact them if you don't have login details.
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Auth wrapper — the real default export
+// ---------------------------------------------------------------------------
+
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [profileError, setProfileError] = useState("");
+
+  const loadProfile = useCallback(async (currentSession) => {
+    if (!currentSession) { setProfile(null); return; }
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", currentSession.user.id).single();
+    if (error || !data) {
+      setProfileError("Your account doesn't have a role assigned yet. Contact your admin.");
+      setProfile(null);
+    } else {
+      setProfileError("");
+      setProfile(data);
+    }
+  }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      loadProfile(data.session).finally(() => setAuthLoading(false));
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      loadProfile(newSession);
+    });
+
+    return () => { listener.subscription.unsubscribe(); };
+  }, [loadProfile]);
+
+  const handleSignedIn = useCallback((newSession) => {
+    setSession(newSession);
+    loadProfile(newSession);
+  }, [loadProfile]);
+
+  const handleLogout = useCallback(async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setProfile(null);
+  }, []);
+
+  if (authLoading) {
+    return <div className="w-full min-h-[400px] bg-[#0E1116] flex items-center justify-center text-[#5A6270] text-sm">Loading…</div>;
+  }
+
+  if (!session) {
+    return <LoginScreen onSignedIn={handleSignedIn} />;
+  }
+
+  if (!profile) {
+    return (
+      <div className="w-full min-h-[400px] bg-[#0E1116] flex items-center justify-center px-4">
+        <div className="max-w-sm text-center">
+          <div className="text-[#F2A93B] text-sm mb-4">{profileError || "Loading your account…"}</div>
+          <button onClick={handleLogout} className="rounded-[6px] border border-[#242B34] px-4 py-2 text-sm text-[#8A93A3] hover:text-[#EDF1F5]">Log out</button>
+        </div>
+      </div>
+    );
+  }
+
+  return <Dashboard role={profile.role} profile={profile} onLogout={handleLogout} />;
 }
