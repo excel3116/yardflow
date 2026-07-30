@@ -20,13 +20,19 @@ const DESTINATIONS = ["MTC Nanekarwadi", "MTC Kharabwadi", "MTC Talawade"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
 
 // Lifecycle: Expected -> Arrived -> Yard Assigned -> Unloaded -> Exited -> Completed | Refill Pending
-const WAITING_STAGES = ["Arrived", "Yard Assigned", "Loading", "Unloaded", "Exited"];
+const WAITING_STAGES = ["Reported", "Approved for Entry", "Arrived", "Yard Assigned", "Loading", "Unloaded", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
 // type: "advance" (simple move to next status), "assignYard", "exitApprove", "finalize"
 const STATUS_ACTIONS = {
   Expected: [
-    { role: "Security", label: "Allow Inside", icon: ShieldCheck, type: "advance", next: "Arrived" },
+    { role: "Security", label: "Report", icon: ShieldCheck, type: "advance", next: "Reported", noFlag: true },
+  ],
+  Reported: [
+    { role: "Yard Supervisor", label: "Approve Entry", icon: Warehouse, type: "advance", next: "Approved for Entry", noFlag: true },
+  ],
+  "Approved for Entry": [
+    { role: "Security", label: "Allow Inside", icon: ShieldCheck, type: "advance", next: "Arrived", noFlag: true },
   ],
   Arrived: [
     { role: "Yard Supervisor", label: "Assign Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
@@ -188,6 +194,8 @@ function StatCard({ card, count, active, onClick }) {
 const DASHBOARD_CARDS = [
   { key: "Expected", label: "Expected today", icon: Clock, filter: (v) => v.status === "Expected" },
   { key: "Inside", label: "Inside plant", icon: Truck, filter: (v) => !["Expected", "Completed", "Refill Pending"].includes(v.status) },
+  { key: "ReportWait", label: "Awaiting yard approval", icon: Warehouse, filter: (v) => v.status === "Reported", pulse: true },
+  { key: "AllowWait", label: "Awaiting security allow-in", icon: ShieldCheck, filter: (v) => v.status === "Approved for Entry", pulse: true },
   { key: "YardWait", label: "Awaiting yard assignment", icon: Warehouse, filter: (v) => v.status === "Arrived" },
   { key: "LoadWait", label: "Awaiting load", icon: PackageCheck, filter: (v) => v.status === "Yard Assigned", pulse: true },
   { key: "Unloading", label: "Unloading in progress", icon: PackageCheck, filter: (v) => v.status === "Loading", pulse: true },
@@ -324,6 +332,7 @@ function ExitApprovalRow({ vehicle }) {
 
 function ActionButtons({ vehicle, role, onAdvance, onFlag, onClearFlag, compact }) {
   const actions = actionsFor(vehicle, role);
+  const flagAllowed = actions.length > 0 && !actions.every((a) => a.noFlag);
   if (actions.length === 0 && !vehicle.flagged) return compact ? <span className="text-[11px] text-[#5A6270]">No action pending</span> : null;
 
   return (
@@ -338,7 +347,7 @@ function ActionButtons({ vehicle, role, onAdvance, onFlag, onClearFlag, compact 
           <a.icon size={12} />{a.label}{a.type === "exitApprove" ? ` (${a.approverLabel})` : ""}
         </button>
       ))}
-      {actions.length > 0 && (
+      {flagAllowed && (
         vehicle.flagged ? (
           <button onClick={(e) => { e.stopPropagation(); onClearFlag(vehicle); }} title="Clear the delayed flag"
             className="inline-flex items-center gap-1 rounded-[4px] border border-[#2A323D] px-2 py-1.5 text-[11px] text-[#8A93A3] hover:text-[#EDF1F5] transition-colors">
@@ -537,6 +546,8 @@ function WelcomeModal({ onClose }) {
 
 const ACTION_LABELS = {
   Expected: "Created trip",
+  Reported: "Reported at gate",
+  "Approved for Entry": "Approved entry (yard)",
   Arrived: "Allowed inside",
   "Yard Assigned": "Assigned yard",
   Loading: "Marked loading",
@@ -991,7 +1002,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
           <HistoryView vehicles={vehicles} roleFilter={null} />
         ) : view === "dashboard" ? (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-2.5 mb-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2.5 mb-5">
               {DASHBOARD_CARDS.map((card) => (
                 <StatCard key={card.key} card={card} count={counts[card.key]} active={filterKey === card.key} onClick={() => setFilterKey(filterKey === card.key ? null : card.key)} />
               ))}
