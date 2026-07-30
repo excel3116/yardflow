@@ -680,11 +680,12 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
 // Main app
 // ---------------------------------------------------------------------------
 
-function Dashboard({ role, profile, onLogout }) {
+function Dashboard({ actualRole, profile, onLogout }) {
+  const [role, setRole] = useState(actualRole);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
-  const [view, setView] = useState(role === "Admin" ? "dashboard" : "queue");
+  const [view, setView] = useState(actualRole === "Admin" ? "dashboard" : "queue");
   const [filterKey, setFilterKey] = useState(null);
   const [search, setSearch] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState(null);
@@ -880,9 +881,22 @@ function Dashboard({ role, profile, onLogout }) {
               <User size={14} className="text-[#6B7686]" />
               <div className="text-[13px] text-[#EDF1F5] leading-tight">
                 <div className="font-medium">{profile.full_name || profile.email}</div>
-                <div className="text-[10px] text-[#6B7686]">{role}</div>
+                <div className="text-[10px] text-[#6B7686]">
+                  {actualRole}{role !== actualRole ? ` — viewing as ${role}` : ""}
+                </div>
               </div>
             </div>
+
+            {actualRole === "Admin" && (
+              <div className="flex items-center gap-1.5 rounded-[6px] border border-[#242B34] bg-[#161B22] px-2.5 py-1.5">
+                <Layers size={14} className="text-[#6B7686]" />
+                <select value={role} onChange={(e) => { setRole(e.target.value); setFilterKey(null); setView(e.target.value === "Admin" ? "dashboard" : "queue"); }}
+                  className="bg-transparent text-[13px] text-[#EDF1F5] focus:outline-none">
+                  {ROLES.map((r) => <option key={r} value={r} className="bg-[#161B22]">{r}</option>)}
+                </select>
+              </div>
+            )}
+
             <button onClick={onLogout} title="Log out"
               className="flex items-center gap-1.5 rounded-[6px] border border-[#242B34] px-2.5 py-1.5 text-[12px] text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors">
               <LogOut size={13} /> Log out
@@ -1196,5 +1210,5 @@ export default function App() {
     );
   }
 
-  return <Dashboard role={profile.role} profile={profile} onLogout={handleLogout} />;
+  return <Dashboard actualRole={profile.role} profile={profile} onLogout={handleLogout} />;
 }
