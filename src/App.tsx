@@ -49,11 +49,12 @@ const STATUS_ACTIONS = {
   ],
   Unloaded: [
     { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
-    { role: "Yard Supervisor", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Supervisor" },
+    { role: "Yard Supervisor", label: "Mark Work Done", icon: LogOut, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Supervisor" },
+    { role: "Yard Supervisor", label: "Send for Refill", icon: RotateCcw, type: "finalize", outcome: "Refill Pending" },
   ],
   Exited: [
-    { role: "QC", label: "Mark Completed", icon: CheckCircle2, type: "finalize", outcome: "Completed" },
-    { role: "QC", label: "Send for Refill", icon: RotateCcw, type: "finalize", outcome: "Refill Pending" },
+    { role: "QC", label: "Mark Completed", icon: CheckCircle2, type: "finalize", outcome: "Completed", noFlag: true },
+    { role: "QC", label: "Flag Quality Issue", icon: AlertTriangle, type: "qcFlag", noFlag: true },
   ],
 };
 
@@ -204,6 +205,7 @@ const DASHBOARD_CARDS = [
   { key: "FirstWeighWait", label: "Awaiting first weighment", icon: Scale, filter: (v) => v.status === "Yard Assigned", pulse: true },
   { key: "UnloadWait", label: "Awaiting unloading", icon: PackageCheck, filter: (v) => v.status === "First Weighment", pulse: true },
   { key: "Unloading", label: "Awaiting second weighment", icon: Scale, filter: (v) => v.status === "Unloading", pulse: true },
+  { key: "WeighmentDone", label: "Weighment finished", icon: Scale, filter: (v) => v.netWeight != null },
   { key: "ExitWait", label: "Awaiting exit approval", icon: LogOut, filter: (v) => v.status === "Unloaded", pulse: true },
   { key: "QCPending", label: "Awaiting QC decision", icon: ClipboardList, filter: (v) => v.status === "Exited" },
   { key: "Completed", label: "Completed today", icon: CheckCircle2, filter: (v) => v.status === "Completed" },
@@ -388,9 +390,11 @@ function ActionButtons({ vehicle, role, onAdvance, onFlag, onClearFlag, compact 
   return (
     <div className={`flex items-center gap-1.5 flex-wrap ${compact ? "justify-end" : ""}`}>
       {actions.map((a, i) => (
-        <button key={i} onClick={(e) => { e.stopPropagation(); onAdvance(vehicle, a); }}
+        <button key={i} onClick={(e) => { e.stopPropagation(); if (a.type === "qcFlag") onFlag(vehicle); else onAdvance(vehicle, a); }}
           className={`inline-flex items-center gap-1 rounded-[4px] border px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
-            a.type === "finalize" && a.outcome === "Refill Pending"
+            a.type === "qcFlag"
+              ? "border-[#4A1E1E] bg-[#2A1515] text-[#FF5C5C] hover:bg-[#331A1A]"
+              : a.type === "finalize" && a.outcome === "Refill Pending"
               ? "border-[#3E2A4A] bg-[#241A2E] text-[#C9A0F5] hover:bg-[#2E2138]"
               : "border-[#3A5A8C] bg-[#122238] text-[#7CACF8] hover:bg-[#183155]"
           }`}>
@@ -452,7 +456,7 @@ function DetailDrawer({ vehicle, role, onClose, onAdvance, onFlag, onClearFlag }
           {vehicle.flagged && !["Completed", "Refill Pending"].includes(vehicle.status) && (
             <div className="mb-5 rounded-[6px] border border-[#4A1E1E] bg-[#2A1515] px-3 py-2.5">
               <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#FF5C5C] mb-0.5">
-                <AlertTriangle size={13} /> Flagged as delayed
+                <AlertTriangle size={13} /> Flagged
               </div>
               {vehicle.flagReason && <div className="text-[12px] text-[#D9A0A0]">{vehicle.flagReason}</div>}
               {vehicle.flaggedAt && <div className="text-[11px] text-[#8A6060] font-mono mt-0.5">{formatDateTime(vehicle.flaggedAt)}</div>}
@@ -620,7 +624,7 @@ const ACTION_LABELS = {
   Exited: "Exit finalized",
   Completed: "Marked completed",
   "Refill Pending": "Sent for refill",
-  Flagged: "Flagged as not done",
+  Flagged: "Flagged",
   "Flag Cleared": "Cleared flag",
 };
 
@@ -727,7 +731,7 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill>
-                      {v.flagged && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Delayed</Pill>}
+                      {v.flagged && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Flagged</Pill>}
                     </div>
                   </td>
                   <td className="px-4 py-2.5">
@@ -1147,7 +1151,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill>
-                            {v.flagged && !["Completed", "Refill Pending"].includes(v.status) && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Delayed</Pill>}
+                            {v.flagged && !["Completed", "Refill Pending"].includes(v.status) && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Flagged</Pill>}
                           </div>
                         </td>
                         <td className="px-4 py-2.5">
