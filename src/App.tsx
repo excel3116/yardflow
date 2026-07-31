@@ -552,13 +552,22 @@ function ReportsView({ vehicles }) {
     const map = {};
     filteredVehicles.forEach((v) => {
       const key = keyFn(v) || "—";
-      map[key] = map[key] || { total: 0, completed: 0, refill: 0, netWeight: 0 };
+      map[key] = map[key] || { total: 0, completed: 0, refill: 0, netWeight: 0, group: [] };
       map[key].total += 1;
       if (v.status === "Completed") map[key].completed += 1;
       if (v.status === "Refill Pending") map[key].refill += 1;
       if (v.netWeight) map[key].netWeight += v.netWeight;
+      map[key].group.push(v);
     });
-    return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+    return Object.entries(map)
+      .map(([name, s]) => [name, {
+        ...s,
+        avgFirstWeigh: avgBetween(s.group, "Arrived", "First Weighment"),
+        avgUnloading: avgBetween(s.group, "First Weighment", "Unloaded"),
+        avgExit: avgBetween(s.group, "Unloaded", "Exited"),
+        avgTurnaround: avgBetween(s.group, "Arrived", "Exited"),
+      }])
+      .sort((a, b) => b[1].total - a[1].total);
   };
 
   const vendorStats = useMemo(() => groupBy((v) => v.vendor), [filteredVehicles]);
@@ -585,11 +594,14 @@ function ReportsView({ vehicles }) {
 
   const inputCls = "rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-2.5 py-1.5 text-[#EDF1F5] text-[12px] font-mono focus:outline-none focus:border-[#4C8CF5]";
 
-  const GroupTable = ({ title, rows }) => (
+  const GroupTable = ({ title, description, rows }) => (
     <div className="mb-6">
-      <div className="text-[11px] uppercase tracking-wide text-[#6B7686] mb-2">{title}</div>
+      <div className="mb-2">
+        <div className="text-[11px] uppercase tracking-wide text-[#6B7686]">{title}</div>
+        {description && <div className="text-[11px] text-[#5A6270] mt-0.5">{description}</div>}
+      </div>
       <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
-        <table className="w-full text-[13px] min-w-[500px]">
+        <table className="w-full text-[13px] min-w-[900px]">
           <thead>
             <tr className="bg-[#161B22] text-[#6B7686] text-[11px] uppercase tracking-wide">
               <th className="text-left px-4 py-2 font-medium">Name</th>
@@ -597,6 +609,10 @@ function ReportsView({ vehicles }) {
               <th className="text-right px-4 py-2 font-medium">Completed</th>
               <th className="text-right px-4 py-2 font-medium">Refill pending</th>
               <th className="text-right px-4 py-2 font-medium">Total net wt.</th>
+              <th className="text-right px-4 py-2 font-medium">Avg. first weigh wait</th>
+              <th className="text-right px-4 py-2 font-medium">Avg. unloading time</th>
+              <th className="text-right px-4 py-2 font-medium">Avg. exit approval</th>
+              <th className="text-right px-4 py-2 font-medium">Avg. turnaround</th>
             </tr>
           </thead>
           <tbody>
@@ -607,6 +623,10 @@ function ReportsView({ vehicles }) {
                 <td className="px-4 py-2.5 text-right font-mono text-[#3ECF8E]">{s.completed}</td>
                 <td className="px-4 py-2.5 text-right font-mono text-[#B98CF5]">{s.refill}</td>
                 <td className="px-4 py-2.5 text-right font-mono text-[#8A93A3]">{s.netWeight.toLocaleString("en-IN")} kg</td>
+                <td className="px-4 py-2.5 text-right font-mono text-[#8A93A3]">{s.avgFirstWeigh != null ? formatElapsed(s.avgFirstWeigh) : "—"}</td>
+                <td className="px-4 py-2.5 text-right font-mono text-[#8A93A3]">{s.avgUnloading != null ? formatElapsed(s.avgUnloading) : "—"}</td>
+                <td className="px-4 py-2.5 text-right font-mono text-[#8A93A3]">{s.avgExit != null ? formatElapsed(s.avgExit) : "—"}</td>
+                <td className="px-4 py-2.5 text-right font-mono text-[#EDF1F5]">{s.avgTurnaround != null ? formatElapsed(s.avgTurnaround) : "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -618,7 +638,10 @@ function ReportsView({ vehicles }) {
   return (
     <div>
       <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-        <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Reports</div>
+        <div>
+          <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Reports</div>
+          <div className="text-[12px] text-[#8A93A3]">Turnaround times and activity, broken down by day, vendor, and transporter.</div>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
           <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">From</label>
           <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
@@ -679,8 +702,8 @@ function ReportsView({ vehicles }) {
         </div>
       </div>
 
-      <GroupTable title="Vendor-wise activity" rows={vendorStats} />
-      <GroupTable title="Transporter-wise activity" rows={transporterStats} />
+      <GroupTable title="Vendor-wise activity" description="Trip counts and average wait/turnaround times for each vendor." rows={vendorStats} />
+      <GroupTable title="Transporter-wise activity" description="Trip counts and average wait/turnaround times for each transporter." rows={transporterStats} />
     </div>
   );
 }
