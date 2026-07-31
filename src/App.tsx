@@ -19,8 +19,8 @@ const MATERIALS = ["Copper", "Stainless Steel", "Scrap", "Aluminium", "CRC"];
 const DESTINATIONS = ["MTC Nanekarwadi", "MTC Kharabwadi", "MTC Talawade"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
 
-// Lifecycle: Expected -> Arrived -> (Yard Assigned) -> First Weighment -> Loading -> Unloaded -> Exited -> Completed | Refill Pending
-const WAITING_STAGES = ["Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Loading", "Unloaded", "Exited"];
+// Lifecycle: Expected -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> Exited -> Completed | Refill Pending
+const WAITING_STAGES = ["Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
 // type: "advance" (simple move to next status), "assignYard", "firstWeigh", "secondWeigh", "exitApprove", "finalize"
@@ -42,9 +42,9 @@ const STATUS_ACTIONS = {
     { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "firstWeigh", next: "First Weighment" },
   ],
   "First Weighment": [
-    { role: "Yard Incharge", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Loading" },
+    { role: "Yard Incharge", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Unloading" },
   ],
-  Loading: [
+  Unloading: [
     { role: "Yard Incharge", label: "Take Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded" },
   ],
   Unloaded: [
@@ -203,7 +203,7 @@ const DASHBOARD_CARDS = [
   { key: "YardWait", label: "Awaiting yard / first weighment", icon: Warehouse, filter: (v) => v.status === "Arrived" },
   { key: "FirstWeighWait", label: "Awaiting first weighment", icon: Scale, filter: (v) => v.status === "Yard Assigned", pulse: true },
   { key: "UnloadWait", label: "Awaiting unloading", icon: PackageCheck, filter: (v) => v.status === "First Weighment", pulse: true },
-  { key: "Unloading", label: "Awaiting second weighment", icon: Scale, filter: (v) => v.status === "Loading", pulse: true },
+  { key: "Unloading", label: "Awaiting second weighment", icon: Scale, filter: (v) => v.status === "Unloading", pulse: true },
   { key: "ExitWait", label: "Awaiting exit approval", icon: LogOut, filter: (v) => v.status === "Unloaded", pulse: true },
   { key: "QCPending", label: "Awaiting QC decision", icon: ClipboardList, filter: (v) => v.status === "Exited" },
   { key: "Completed", label: "Completed today", icon: CheckCircle2, filter: (v) => v.status === "Completed" },
@@ -604,7 +604,7 @@ function WelcomeModal({ onClose }) {
 }
 
 // ---------------------------------------------------------------------------
-// Role queue view — what Security / Yard / Loading / QC see (no dashboard)
+// Role queue view — what Security / Yard Supervisor / Yard Incharge / QC see (no dashboard)
 // ---------------------------------------------------------------------------
 
 const ACTION_LABELS = {
@@ -614,7 +614,7 @@ const ACTION_LABELS = {
   Arrived: "Allowed inside",
   "Yard Assigned": "Assigned yard",
   "First Weighment": "First weighment recorded",
-  Loading: "Sent for unloading",
+  Unloading: "Sent for unloading",
   Unloaded: "Second weighment recorded",
   "Exit Approval": "Approved exit",
   Exited: "Exit finalized",
