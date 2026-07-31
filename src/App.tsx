@@ -99,6 +99,18 @@ function formatDateTime(ts) { return new Date(ts).toLocaleString("en-IN", { day:
 function dayKey(ts) { return new Date(ts).toLocaleDateString("en-CA"); }
 function formatDayLabel(key) { return new Date(`${key}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }); }
 
+function arrivedAt(vehicle) {
+  const entry = (vehicle.history || []).find((h) => h.status === "Arrived");
+  return entry ? entry.at : null;
+}
+
+// True once a truck has been inside the plant for over an hour without finishing weighment (both weighments recorded).
+function isWeighmentOverdue(vehicle, now) {
+  if (vehicle.netWeight != null) return false;
+  const at = arrivedAt(vehicle);
+  return at != null && now - at > 60 * 60 * 1000;
+}
+
 function statusColor(status) {
   if (status === "Expected") return { fg: "#8A93A3", bg: "#1A2029", bd: "#2A323D" };
   if (status === "Completed") return { fg: "#3ECF8E", bg: "#122A22", bd: "#1E4A3A" };
@@ -212,6 +224,7 @@ const DASHBOARD_CARDS = [
   { key: "UnloadWait", label: "Awaiting unloading", icon: PackageCheck, filter: (v) => v.status === "First Weighment", pulse: true },
   { key: "Unloading", label: "Awaiting second weighment", icon: Scale, filter: (v) => v.status === "Unloading", pulse: true },
   { key: "WeighmentDone", label: "Weighment finished", icon: Scale, filter: (v) => v.netWeight != null },
+  { key: "WeighmentOverdue", label: "Weighment overdue (>1h)", icon: AlertTriangle, filter: (v, now) => isWeighmentOverdue(v, now), pulse: true },
   { key: "ExitWait", label: "Awaiting exit approval", icon: LogOut, filter: (v) => v.status === "Unloaded", pulse: true },
   { key: "QCPending", label: "Awaiting QC decision", icon: ClipboardList, filter: (v) => v.status === "Exited" },
   { key: "Completed", label: "Completed today", icon: CheckCircle2, filter: (v) => v.status === "Completed" },
@@ -424,7 +437,7 @@ function ActionButtons({ vehicle, role, onAdvance, onFlag, onClearFlag, compact 
   );
 }
 
-function DetailDrawer({ vehicle, role, onClose, onAdvance, onFlag, onClearFlag }) {
+function DetailDrawer({ vehicle, role, now, onClose, onAdvance, onFlag, onClearFlag }) {
   if (!vehicle) return null;
   const sc = statusColor(vehicle.status);
 
@@ -466,6 +479,15 @@ function DetailDrawer({ vehicle, role, onClose, onAdvance, onFlag, onClearFlag }
               </div>
               {vehicle.flagReason && <div className="text-[12px] text-[#D9A0A0]">{vehicle.flagReason}</div>}
               {vehicle.flaggedAt && <div className="text-[11px] text-[#8A6060] font-mono mt-0.5">{formatDateTime(vehicle.flaggedAt)}</div>}
+            </div>
+          )}
+
+          {isWeighmentOverdue(vehicle, now) && (
+            <div className="mb-5 rounded-[6px] border border-[#4A1E1E] bg-[#2A1515] px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#FF5C5C] mb-0.5">
+                <AlertTriangle size={13} /> Weighment overdue — check on this truck
+              </div>
+              <div className="text-[12px] text-[#D9A0A0]">Inside the plant for over an hour without finishing weighment.</div>
             </div>
           )}
 
@@ -884,6 +906,7 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill>
                       {v.flagged && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Flagged</Pill>}
+                      {isWeighmentOverdue(v, now) && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Weighment &gt;1h</Pill>}
                     </div>
                   </td>
                   <td className="px-4 py-2.5">
@@ -971,22 +994,22 @@ function Dashboard({ actualRole, profile, onLogout }) {
 
   const counts = useMemo(() => {
     const c = {};
-    DASHBOARD_CARDS.forEach((card) => { c[card.key] = vehicles.filter(card.filter).length; });
+    DASHBOARD_CARDS.forEach((card) => { c[card.key] = vehicles.filter((v) => card.filter(v, now)).length; });
     return c;
-  }, [vehicles]);
+  }, [vehicles, now]);
 
   const visibleVehicles = useMemo(() => {
     let list = vehicles;
     if (filterKey) {
       const card = DASHBOARD_CARDS.find((c) => c.key === filterKey);
-      if (card) list = list.filter(card.filter);
+      if (card) list = list.filter((v) => card.filter(v, now));
     }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter((v) => v.vehicleNumber.toLowerCase().includes(q) || v.vendor.toLowerCase().includes(q) || (v.po || "").toLowerCase().includes(q));
     }
     return [...list].sort((a, b) => b.statusAt - a.statusAt);
-  }, [vehicles, filterKey, search]);
+  }, [vehicles, filterKey, search, now]);
 
   const handleCreate = useCallback(async (form) => {
     const at = Date.now();
@@ -1308,6 +1331,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill>
                             {v.flagged && !["Completed", "Refill Pending"].includes(v.status) && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Flagged</Pill>}
+                            {isWeighmentOverdue(v, now) && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Weighment &gt;1h</Pill>}
                           </div>
                         </td>
                         <td className="px-4 py-2.5">
@@ -1337,6 +1361,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
         <DetailDrawer
           vehicle={vehicles.find((v) => v.id === selectedVehicle.id) || selectedVehicle}
           role={role}
+          now={now}
           onClose={() => setSelectedVehicle(null)}
           onAdvance={handleAdvance}
           onFlag={handleFlag}
