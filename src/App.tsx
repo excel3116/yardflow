@@ -19,13 +19,16 @@ const MATERIALS = ["Copper", "Stainless Steel", "Scrap", "Aluminium", "CRC"];
 const DESTINATIONS = ["MTC Nanekarwadi", "MTC Kharabwadi", "MTC Talawade"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
 
-// Lifecycle: Expected -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> Exited -> Completed | Refill Pending
-const WAITING_STAGES = ["Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Exited"];
+// Lifecycle: Expected -> Departed -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> Exited -> Completed | Refill Pending
+const WAITING_STAGES = ["Expected", "Departed", "Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
 // type: "advance" (simple move to next status), "assignYard", "firstWeigh", "secondWeigh", "exitApprove", "finalize"
 const STATUS_ACTIONS = {
   Expected: [
+    { role: "Vendor", label: "Mark Left MTC", icon: Truck, type: "advance", next: "Departed" },
+  ],
+  Departed: [
     { role: "Security", label: "Report", icon: ShieldCheck, type: "advance", next: "Reported", noFlag: true },
   ],
   Reported: [
@@ -197,8 +200,9 @@ function StatCard({ card, count, active, onClick }) {
 }
 
 const DASHBOARD_CARDS = [
-  { key: "Expected", label: "Expected today", icon: Clock, filter: (v) => v.status === "Expected" },
-  { key: "Inside", label: "Inside plant", icon: Truck, filter: (v) => !["Expected", "Completed", "Refill Pending"].includes(v.status) },
+  { key: "Expected", label: "Awaiting departure (MTC)", icon: Clock, filter: (v) => v.status === "Expected", pulse: true },
+  { key: "DepartedWait", label: "Awaiting gate report", icon: Truck, filter: (v) => v.status === "Departed", pulse: true },
+  { key: "Inside", label: "Inside plant", icon: Truck, filter: (v) => !["Expected", "Departed", "Completed", "Refill Pending"].includes(v.status) },
   { key: "ReportWait", label: "Awaiting yard approval", icon: Warehouse, filter: (v) => v.status === "Reported", pulse: true },
   { key: "AllowWait", label: "Awaiting security allow-in", icon: ShieldCheck, filter: (v) => v.status === "Approved for Entry", pulse: true },
   { key: "YardWait", label: "Awaiting yard / first weighment", icon: Warehouse, filter: (v) => v.status === "Arrived" },
@@ -613,6 +617,7 @@ function WelcomeModal({ onClose }) {
 
 const ACTION_LABELS = {
   Expected: "Created trip",
+  Departed: "Left MTC",
   Reported: "Reported at gate",
   "Approved for Entry": "Approved entry (yard)",
   Arrived: "Allowed inside",
@@ -1074,15 +1079,16 @@ function Dashboard({ actualRole, profile, onLogout }) {
             <div>
               <div className="mb-4">
                 <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Your trips</div>
-                <div className="text-[12px] text-[#8A93A3]">Create a new trip, or check on one you've already registered.</div>
+                <div className="text-[12px] text-[#8A93A3]">Create a new trip, mark it once it leaves your MTC, or check on one you've already registered.</div>
               </div>
               <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
-                <table className="w-full text-[13px] min-w-[600px]">
+                <table className="w-full text-[13px] min-w-[700px]">
                   <thead>
                     <tr className="bg-[#161B22] text-[#6B7686] text-[11px] uppercase tracking-wide">
                       <th className="text-left px-4 py-2.5 font-medium">Vehicle</th>
                       <th className="text-left px-4 py-2.5 font-medium">Vendor / Material</th>
                       <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                      <th className="text-right px-4 py-2.5 font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1093,6 +1099,9 @@ function Dashboard({ actualRole, profile, onLogout }) {
                           <td className="px-4 py-2.5 font-mono text-[13px] font-bold text-[#EDF1F5]">{v.vehicleNumber}</td>
                           <td className="px-4 py-2.5"><div className="text-[#DCE2E8]">{v.vendor}</div><div className="text-[11px] text-[#6B7686]">{v.material}</div></td>
                           <td className="px-4 py-2.5"><Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill></td>
+                          <td className="px-4 py-2.5 text-right">
+                            <ActionButtons vehicle={v} role={role} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag} compact />
+                          </td>
                         </tr>
                       );
                     })}
