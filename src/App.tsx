@@ -96,6 +96,8 @@ function formatElapsed(ms) {
 
 function formatClock(ts) { return new Date(ts).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }); }
 function formatDateTime(ts) { return new Date(ts).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); }
+function dayKey(ts) { return new Date(ts).toLocaleDateString("en-CA"); }
+function formatDayLabel(key) { return new Date(`${key}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }); }
 
 function statusColor(status) {
   if (status === "Expected") return { fg: "#8A93A3", bg: "#1A2029", bd: "#2A323D" };
@@ -495,8 +497,14 @@ function DetailDrawer({ vehicle, role, onClose, onAdvance, onFlag, onClearFlag }
                   {i < vehicle.history.length - 1 && <div className="w-px flex-1 bg-[#2A323D]" />}
                 </div>
                 <div className="pb-4">
-                  <div className="text-[13px] text-[#EDF1F5]">{h.status}</div>
-                  <div className="text-[11px] text-[#6B7686] font-mono">{formatDateTime(h.at)}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-[13px] text-[#EDF1F5]">{ACTION_LABELS[h.status] || h.status}</div>
+                    {h.outcome === "not-approved" && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Not approved</Pill>}
+                  </div>
+                  <div className="text-[11px] text-[#6B7686] font-mono">
+                    {formatDateTime(h.at)}{h.role ? ` · ${h.role}` : ""}
+                  </div>
+                  {h.note && <div className="text-[11px] text-[#8A93A3] mt-0.5">{h.note}</div>}
                 </div>
               </div>
             ))}
@@ -519,16 +527,30 @@ function avgBetween(vehicles, fromStatus, toStatus) {
 }
 
 function ReportsView({ vehicles }) {
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const inRange = useCallback((ts) => {
+    if (fromDate && ts < new Date(fromDate).getTime()) return false;
+    if (toDate && ts > new Date(toDate).getTime() + 24 * 60 * 60 * 1000 - 1) return false;
+    return true;
+  }, [fromDate, toDate]);
+
+  const filteredVehicles = useMemo(() => {
+    if (!fromDate && !toDate) return vehicles;
+    return vehicles.filter((v) => (v.history || []).some((h) => inRange(h.at)));
+  }, [vehicles, fromDate, toDate, inRange]);
+
   const metrics = [
-    { label: "Avg. wait for first weighment", value: avgBetween(vehicles, "Arrived", "First Weighment") },
-    { label: "Avg. unloading time", value: avgBetween(vehicles, "First Weighment", "Unloaded") },
-    { label: "Avg. exit approval time", value: avgBetween(vehicles, "Unloaded", "Exited") },
-    { label: "Avg. total turnaround", value: avgBetween(vehicles, "Arrived", "Exited") },
+    { label: "Avg. wait for first weighment", value: avgBetween(filteredVehicles, "Arrived", "First Weighment") },
+    { label: "Avg. unloading time", value: avgBetween(filteredVehicles, "First Weighment", "Unloaded") },
+    { label: "Avg. exit approval time", value: avgBetween(filteredVehicles, "Unloaded", "Exited") },
+    { label: "Avg. total turnaround", value: avgBetween(filteredVehicles, "Arrived", "Exited") },
   ];
 
   const groupBy = (keyFn) => {
     const map = {};
-    vehicles.forEach((v) => {
+    filteredVehicles.forEach((v) => {
       const key = keyFn(v) || "—";
       map[key] = map[key] || { total: 0, completed: 0, refill: 0, netWeight: 0 };
       map[key].total += 1;
@@ -539,8 +561,29 @@ function ReportsView({ vehicles }) {
     return Object.entries(map).sort((a, b) => b[1].total - a[1].total);
   };
 
-  const vendorStats = useMemo(() => groupBy((v) => v.vendor), [vehicles]);
-  const transporterStats = useMemo(() => groupBy((v) => v.transporter), [vehicles]);
+  const vendorStats = useMemo(() => groupBy((v) => v.vendor), [filteredVehicles]);
+  const transporterStats = useMemo(() => groupBy((v) => v.transporter), [filteredVehicles]);
+
+  const dailyBreakdown = useMemo(() => {
+    const map = {};
+    vehicles.forEach((v) => {
+      (v.history || []).forEach((h) => {
+        if (!inRange(h.at)) return;
+        const key = dayKey(h.at);
+        map[key] = map[key] || { created: 0, departed: 0, completed: 0, refill: 0, flagged: 0, netWeight: 0 };
+        if (h.status === "Expected") map[key].created += 1;
+        else if (h.status === "Departed") map[key].departed += 1;
+        else if (h.status === "Completed") map[key].completed += 1;
+        else if (h.status === "Refill Pending") map[key].refill += 1;
+        else if (h.status === "Flagged") map[key].flagged += 1;
+        else if (h.status === "Unloaded" && v.netWeight != null) map[key].netWeight += v.netWeight;
+      });
+    });
+    const rows = Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+    return fromDate || toDate ? rows : rows.slice(0, 14);
+  }, [vehicles, fromDate, toDate, inRange]);
+
+  const inputCls = "rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-2.5 py-1.5 text-[#EDF1F5] text-[12px] font-mono focus:outline-none focus:border-[#4C8CF5]";
 
   const GroupTable = ({ title, rows }) => (
     <div className="mb-6">
@@ -574,6 +617,22 @@ function ReportsView({ vehicles }) {
 
   return (
     <div>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Reports</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">From</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
+          <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">To</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
+          {(fromDate || toDate) && (
+            <button onClick={() => { setFromDate(""); setToDate(""); }}
+              className="flex items-center gap-1 text-[11px] text-[#8A93A3] hover:text-[#EDF1F5] border border-[#242B34] rounded-[4px] px-2 py-1.5">
+              <X size={11} /> Clear
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {metrics.map((m) => (
           <div key={m.label} className="rounded-[6px] border border-[#242B34] bg-[#161B22] px-4 py-3">
@@ -582,6 +641,44 @@ function ReportsView({ vehicles }) {
           </div>
         ))}
       </div>
+
+      <div className="mb-6">
+        <div className="text-[11px] uppercase tracking-wide text-[#6B7686] mb-2">
+          Daily report {!fromDate && !toDate ? "(last 14 days with activity)" : ""}
+        </div>
+        <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
+          <table className="w-full text-[13px] min-w-[620px]">
+            <thead>
+              <tr className="bg-[#161B22] text-[#6B7686] text-[11px] uppercase tracking-wide">
+                <th className="text-left px-4 py-2 font-medium">Date</th>
+                <th className="text-right px-4 py-2 font-medium">Created</th>
+                <th className="text-right px-4 py-2 font-medium">Departed</th>
+                <th className="text-right px-4 py-2 font-medium">Completed</th>
+                <th className="text-right px-4 py-2 font-medium">Refill</th>
+                <th className="text-right px-4 py-2 font-medium">Flagged</th>
+                <th className="text-right px-4 py-2 font-medium">Net wt. moved</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dailyBreakdown.map(([key, d]) => (
+                <tr key={key} className="border-t border-[#242B34]">
+                  <td className="px-4 py-2.5 text-[#DCE2E8] font-mono">{formatDayLabel(key)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-[#DCE2E8]">{d.created}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-[#DCE2E8]">{d.departed}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-[#3ECF8E]">{d.completed}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-[#B98CF5]">{d.refill}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-[#FF5C5C]">{d.flagged}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-[#8A93A3]">{d.netWeight.toLocaleString("en-IN")} kg</td>
+                </tr>
+              ))}
+              {dailyBreakdown.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-[#5A6270] text-[13px]">No activity in this range.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <GroupTable title="Vendor-wise activity" rows={vendorStats} />
       <GroupTable title="Transporter-wise activity" rows={transporterStats} />
     </div>
@@ -634,6 +731,9 @@ const ACTION_LABELS = {
 };
 
 function HistoryView({ vehicles, roleFilter }) {
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
   const entries = useMemo(() => {
     const list = [];
     vehicles.forEach((v) => {
@@ -646,14 +746,38 @@ function HistoryView({ vehicles, roleFilter }) {
     return list.sort((a, b) => b.at - a.at);
   }, [vehicles, roleFilter]);
 
+  const visibleEntries = useMemo(() => {
+    return entries.filter((e) => {
+      if (fromDate && e.at < new Date(fromDate).getTime()) return false;
+      if (toDate && e.at > new Date(toDate).getTime() + 24 * 60 * 60 * 1000 - 1) return false;
+      return true;
+    });
+  }, [entries, fromDate, toDate]);
+
+  const inputCls = "rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-2.5 py-1.5 text-[#EDF1F5] text-[12px] font-mono focus:outline-none focus:border-[#4C8CF5]";
+
   return (
     <div>
-      <div className="mb-4">
-        <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">
-          {roleFilter ? `${roleFilter} — history` : "Full activity history"}
+      <div className="mb-4 flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">
+            {roleFilter ? `${roleFilter} — history` : "Full activity history"}
+          </div>
+          <div className="text-[12px] text-[#8A93A3]">
+            {roleFilter ? "Only actions you've personally taken are shown here." : "Every action taken by every role."}
+          </div>
         </div>
-        <div className="text-[12px] text-[#8A93A3]">
-          {roleFilter ? "Only actions you've personally taken are shown here." : "Every action taken by every role."}
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">From</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
+          <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">To</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
+          {(fromDate || toDate) && (
+            <button onClick={() => { setFromDate(""); setToDate(""); }}
+              className="flex items-center gap-1 text-[11px] text-[#8A93A3] hover:text-[#EDF1F5] border border-[#242B34] rounded-[4px] px-2 py-1.5">
+              <X size={11} /> Clear
+            </button>
+          )}
         </div>
       </div>
       <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
@@ -668,7 +792,7 @@ function HistoryView({ vehicles, roleFilter }) {
             </tr>
           </thead>
           <tbody>
-            {entries.map((e, i) => (
+            {visibleEntries.map((e, i) => (
               <tr key={i} className="border-t border-[#242B34]">
                 <td className="px-4 py-2.5 font-mono text-[11px] text-[#8A93A3]">{formatDateTime(e.at)}</td>
                 <td className="px-4 py-2.5 font-mono text-[13px] font-bold text-[#EDF1F5]">{e.vehicleNumber}</td>
@@ -686,8 +810,8 @@ function HistoryView({ vehicles, roleFilter }) {
                 </td>
               </tr>
             ))}
-            {entries.length === 0 && (
-              <tr><td colSpan={roleFilter ? 4 : 5} className="px-4 py-10 text-center text-[#5A6270] text-[13px]">No history yet.</td></tr>
+            {visibleEntries.length === 0 && (
+              <tr><td colSpan={roleFilter ? 4 : 5} className="px-4 py-10 text-center text-[#5A6270] text-[13px]">No history in this range.</td></tr>
             )}
           </tbody>
         </table>
