@@ -23,7 +23,7 @@ const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B 
 const WAITING_STAGES = ["Expected", "Departed", "Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
-// type: "advance" (simple move to next status), "assignYard", "firstWeigh", "secondWeigh", "exitApprove", "finalize"
+// type: "advance" (simple move to next status), "assignYard", "secondWeigh", "exitApprove", "finalize"
 const STATUS_ACTIONS = {
   Expected: [
     { role: "Vendor", label: "Mark Left MTC", icon: Truck, type: "advance", next: "Departed" },
@@ -39,10 +39,10 @@ const STATUS_ACTIONS = {
   ],
   Arrived: [
     { role: "Yard Incharge", label: "Assign Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
-    { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "firstWeigh", next: "First Weighment" },
+    { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
   ],
   "Yard Assigned": [
-    { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "firstWeigh", next: "First Weighment" },
+    { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
   ],
   "First Weighment": [
     { role: "Yard Incharge", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Unloading" },
@@ -320,7 +320,6 @@ function AddVehicleModal({ onClose, onCreate }) {
 function WeighInModal({ request, onClose, onSubmit }) {
   const [value, setValue] = useState("");
   if (!request) return null;
-  const isFirst = request.action.type === "firstWeigh";
   const num = Number(value);
   const valid = value !== "" && !Number.isNaN(num) && num > 0;
 
@@ -336,23 +335,17 @@ function WeighInModal({ request, onClose, onSubmit }) {
       <form onSubmit={submit} className="w-full max-w-sm rounded-[8px] border border-[#2A323D] bg-[#14181E] p-5 shadow-2xl">
         <div className="flex items-center justify-between mb-1">
           <h3 className="font-[Barlow_Condensed] text-[20px] font-bold text-[#EDF1F5] tracking-wide">
-            {isFirst ? "First weighment" : "Second weighment"}
+            Record net weight
           </h3>
           <button type="button" onClick={onClose} className="text-[#6B7686] hover:text-[#EDF1F5]"><X size={18} /></button>
         </div>
         <div className="text-[12px] text-[#8A93A3] mb-4 font-mono">
-          {request.vehicle.vehicleNumber} · {isFirst ? "loaded (gross) weight" : "empty (tare) weight after unloading"}
+          {request.vehicle.vehicleNumber} · net weight from the second weighment
         </div>
-        <label className="block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1">Weight (kg)</label>
+        <label className="block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1">Net weight (kg)</label>
         <input autoFocus type="number" min="0" step="1" value={value} onChange={(e) => setValue(e.target.value)}
-          placeholder="e.g. 30200"
+          placeholder="e.g. 20600"
           className="w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] text-sm font-mono focus:outline-none focus:border-[#4C8CF5]" />
-        {!isFirst && valid && request.vehicle.grossWeight != null && (
-          <div className="text-[11px] text-[#6B7686] mt-2">
-            Net weight will be recorded as{" "}
-            <span className="text-[#DCE2E8] font-mono">{(request.vehicle.grossWeight - num).toLocaleString("en-IN")} kg</span>
-          </div>
-        )}
         <div className="flex gap-2 mt-5">
           <button type="button" onClick={onClose} className="flex-1 rounded-[4px] border border-[#2A323D] py-2 text-sm text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors">Cancel</button>
           <button type="submit" disabled={!valid} className="flex-1 rounded-[4px] bg-[#4C8CF5] py-2 text-sm font-semibold text-[#08111F] hover:bg-[#659BF7] transition-colors disabled:opacity-50">Record weight</button>
@@ -491,15 +484,14 @@ function DetailDrawer({ vehicle, role, now, onClose, onAdvance, onFlag, onClearF
             </div>
           )}
 
-          {(vehicle.grossWeight != null || vehicle.tareWeight != null || vehicle.netWeight != null) && (() => {
-            const dev = vehicle.netWeight != null && vehicle.partyNetWeight
+          {vehicle.netWeight != null && (() => {
+            const dev = vehicle.partyNetWeight
               ? Math.abs(vehicle.netWeight - vehicle.partyNetWeight) / vehicle.partyNetWeight
               : null;
             return (
-              <div className="grid grid-cols-3 gap-2 mb-5">
-                <WeightReadout label="Gross (loaded)" value={vehicle.grossWeight} />
-                <WeightReadout label="Tare (empty)" value={vehicle.tareWeight} />
-                <WeightReadout label="Net weight" value={vehicle.netWeight} highlight={dev != null && dev <= 0.02} warn={dev != null && dev > 0.02} />
+              <div className="grid grid-cols-2 gap-2 mb-5">
+                <WeightReadout label="Party net wt. (declared)" value={vehicle.partyNetWeight} />
+                <WeightReadout label="Net weight (measured)" value={vehicle.netWeight} highlight={dev != null && dev <= 0.02} warn={dev != null && dev > 0.02} />
               </div>
             );
           })()}
@@ -1038,7 +1030,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
   }, [role]);
 
   const handleAdvance = useCallback(async (vehicle, action) => {
-    if (action.type === "firstWeigh" || action.type === "secondWeigh") {
+    if (action.type === "secondWeigh") {
       setWeighRequest({ vehicle, action });
       return;
     }
@@ -1084,23 +1076,12 @@ function Dashboard({ actualRole, profile, onLogout }) {
     const at = Date.now();
     const actor = role === "Admin" ? action.role : role;
 
-    let update = {};
-    if (action.type === "firstWeigh") {
-      update = {
-        status: action.next, status_at: new Date(at).toISOString(),
-        gross_weight: weightValue,
-        history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved", note: `Gross weight: ${weightValue.toLocaleString("en-IN")} kg` }],
-        flagged: false, flag_reason: null, flagged_at: null,
-      };
-    } else if (action.type === "secondWeigh") {
-      const net = vehicle.grossWeight != null ? vehicle.grossWeight - weightValue : null;
-      update = {
-        status: action.next, status_at: new Date(at).toISOString(),
-        tare_weight: weightValue, net_weight: net,
-        history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved", note: `Tare weight: ${weightValue.toLocaleString("en-IN")} kg${net != null ? `, Net: ${net.toLocaleString("en-IN")} kg` : ""}` }],
-        flagged: false, flag_reason: null, flagged_at: null,
-      };
-    }
+    const update = {
+      status: action.next, status_at: new Date(at).toISOString(),
+      net_weight: weightValue,
+      history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved", note: `Net weight: ${weightValue.toLocaleString("en-IN")} kg` }],
+      flagged: false, flag_reason: null, flagged_at: null,
+    };
 
     const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
     if (error) setConnectionError(error.message);
