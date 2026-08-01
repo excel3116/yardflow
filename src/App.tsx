@@ -52,8 +52,8 @@ const STATUS_ACTIONS = {
   ],
   Unloaded: [
     { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
-    { role: "Yard Supervisor", label: "Mark Work Done", icon: LogOut, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Supervisor" },
-    { role: "Yard Supervisor", label: "Send for Refill", icon: RotateCcw, type: "finalize", outcome: "Refill Pending" },
+    { role: "Yard Supervisor", label: "Mark Work Done", icon: LogOut, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Supervisor", outcome: "Exited" },
+    { role: "Yard Supervisor", label: "Send for Refill", icon: RotateCcw, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Supervisor", outcome: "Refill Pending" },
   ],
   Exited: [
     { role: "QC", label: "Mark Completed", icon: CheckCircle2, type: "finalize", outcome: "Completed", noFlag: true },
@@ -145,6 +145,7 @@ function rowToVehicle(row) {
     netWeight: row.net_weight,
     securityExitApproved: row.security_exit_approved || false,
     yardExitApproved: row.yard_exit_approved || false,
+    yardExitOutcome: row.yard_exit_outcome || null,
     history: row.history || [],
     flagged: row.flagged || false,
     flagReason: row.flag_reason || "",
@@ -377,9 +378,10 @@ function WeightReadout({ label, value, highlight, warn }) {
 }
 
 function ExitApprovalRow({ vehicle }) {
-  if (vehicle.status !== "Unloaded" && vehicle.status !== "Exited") return null;
-  const secDone = vehicle.securityExitApproved || vehicle.status === "Exited";
-  const yardDone = vehicle.yardExitApproved || vehicle.status === "Exited";
+  if (!["Unloaded", "Exited", "Refill Pending"].includes(vehicle.status)) return null;
+  const bothDone = vehicle.status === "Exited" || vehicle.status === "Refill Pending";
+  const secDone = vehicle.securityExitApproved || bothDone;
+  const yardDone = vehicle.yardExitApproved || bothDone;
   return (
     <div className="flex items-center gap-4 text-[12px] mb-3">
       <div className="flex items-center gap-1.5">
@@ -406,7 +408,7 @@ function ActionButtons({ vehicle, role, onAdvance, onFlag, onClearFlag, compact 
           className={`inline-flex items-center gap-1 rounded-[4px] border px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
             a.type === "qcFlag"
               ? "border-[#4A1E1E] bg-[#2A1515] text-[#FF5C5C] hover:bg-[#331A1A]"
-              : a.type === "finalize" && a.outcome === "Refill Pending"
+              : a.outcome === "Refill Pending"
               ? "border-[#3E2A4A] bg-[#241A2E] text-[#C9A0F5] hover:bg-[#2E2138]"
               : "border-[#3A5A8C] bg-[#122238] text-[#7CACF8] hover:bg-[#183155]"
           }`}>
@@ -1045,18 +1047,22 @@ function Dashboard({ actualRole, profile, onLogout }) {
     } else if (action.type === "assignYard") {
       update = { status: action.next, status_at: new Date(at).toISOString(), yard: YARDS[randomBetween(0, YARDS.length - 1)], history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
     } else if (action.type === "exitApprove") {
-      const otherApproved = action.approverKey === "securityExitApproved" ? vehicle.yardExitApproved : vehicle.securityExitApproved;
+      const isYardApproval = action.approverKey === "yardExitApproved";
+      const otherApproved = isYardApproval ? vehicle.securityExitApproved : vehicle.yardExitApproved;
       const approvalEntry = { status: "Exit Approval", at, role: action.approverLabel, outcome: "approved" };
       if (otherApproved) {
+        // Yard Supervisor decides the destination (Exited or Refill Pending); Security's own click just carries out whichever was already chosen.
+        const finalStatus = isYardApproval ? action.outcome : (vehicle.yardExitOutcome || "Exited");
         update = {
-          status: "Exited", status_at: new Date(at).toISOString(),
-          [action.approverKey === "securityExitApproved" ? "security_exit_approved" : "yard_exit_approved"]: true,
-          history: [...(vehicle.history || []), approvalEntry, { status: "Exited", at, role: null, outcome: "approved" }],
+          status: finalStatus, status_at: new Date(at).toISOString(),
+          [isYardApproval ? "yard_exit_approved" : "security_exit_approved"]: true,
+          history: [...(vehicle.history || []), approvalEntry, { status: finalStatus, at, role: null, outcome: "approved" }],
           flagged: false, flag_reason: null, flagged_at: null,
         };
       } else {
         update = {
-          [action.approverKey === "securityExitApproved" ? "security_exit_approved" : "yard_exit_approved"]: true,
+          [isYardApproval ? "yard_exit_approved" : "security_exit_approved"]: true,
+          ...(isYardApproval ? { yard_exit_outcome: action.outcome } : {}),
           history: [...(vehicle.history || []), approvalEntry],
         };
       }
