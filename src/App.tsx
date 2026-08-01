@@ -1236,7 +1236,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
             <div>
               <div className="mb-4">
                 <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Your trips</div>
-                <div className="text-[12px] text-[#8A93A3]">Create a new trip, mark it once it leaves your MTC, or check on one you've already registered.</div>
+                <div className="text-[12px] text-[#8A93A3]">Create a new trip, mark it once it leaves your MTC, or check on one you've already registered. Trucks sent for refill have ended their lifecycle here and may go to a different MTC, so they're not shown.</div>
               </div>
               <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
                 <table className="w-full text-[13px] min-w-[700px]">
@@ -1249,7 +1249,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...vehicles].sort((a, b) => b.statusAt - a.statusAt).map((v) => {
+                    {[...vehicles].filter((v) => v.status !== "Refill Pending").sort((a, b) => b.statusAt - a.statusAt).map((v) => {
                       const sc = statusColor(v.status);
                       return (
                         <tr key={v.id} onClick={() => setSelectedVehicle(v)} className="border-t border-[#242B34] hover:bg-[#151A20] cursor-pointer transition-colors">
