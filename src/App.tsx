@@ -32,28 +32,28 @@ const STATUS_ACTIONS = {
     { role: "Security", label: "Report", icon: ShieldCheck, type: "advance", next: "Reported", noFlag: true },
   ],
   Reported: [
-    { role: "Yard Supervisor", label: "Approve Entry", icon: Warehouse, type: "advance", next: "Approved for Entry", noFlag: true },
+    { role: "Yard Incharge", label: "Approve Entry", icon: Warehouse, type: "advance", next: "Approved for Entry", noFlag: true },
   ],
   "Approved for Entry": [
     { role: "Security", label: "Allow Inside", icon: ShieldCheck, type: "advance", next: "Arrived", noFlag: true },
   ],
   Arrived: [
-    { role: "Yard Incharge", label: "Assign Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
-    { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
+    { role: "Yard Supervisor", label: "Assign Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
+    { role: "Yard Supervisor", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
   ],
   "Yard Assigned": [
-    { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
+    { role: "Yard Supervisor", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
   ],
   "First Weighment": [
-    { role: "Yard Incharge", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Unloading" },
+    { role: "Yard Supervisor", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Unloading" },
   ],
   Unloading: [
-    { role: "Yard Incharge", label: "Take Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded" },
+    { role: "Yard Supervisor", label: "Take Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded" },
   ],
   Unloaded: [
     { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
-    { role: "Yard Supervisor", label: "Mark Work Done", icon: LogOut, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Supervisor", outcome: "Exited" },
-    { role: "Yard Supervisor", label: "Send for Refill", icon: RotateCcw, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Supervisor", outcome: "Refill Pending" },
+    { role: "Yard Incharge", label: "Mark Work Done", icon: LogOut, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Incharge", outcome: "Exited" },
+    { role: "Yard Incharge", label: "Send for Refill", icon: RotateCcw, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Incharge", outcome: "Refill Pending" },
   ],
   Exited: [
     { role: "QC", label: "Mark Completed", icon: CheckCircle2, type: "finalize", outcome: "Completed", noFlag: true },
@@ -390,7 +390,7 @@ function ExitApprovalRow({ vehicle }) {
       </div>
       <div className="flex items-center gap-1.5">
         {yardDone ? <CheckCircle2 size={13} className="text-[#3ECF8E]" /> : <Circle size={13} className="text-[#5A6270]" />}
-        <span className={yardDone ? "text-[#8A93A3]" : "text-[#5A6270]"}>Yard supervisor approval</span>
+        <span className={yardDone ? "text-[#8A93A3]" : "text-[#5A6270]"}>Yard incharge approval</span>
       </div>
     </div>
   );
@@ -1051,7 +1051,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
       const otherApproved = isYardApproval ? vehicle.securityExitApproved : vehicle.yardExitApproved;
       const approvalEntry = { status: "Exit Approval", at, role: action.approverLabel, outcome: "approved" };
       if (otherApproved) {
-        // Yard Supervisor decides the destination (Exited or Refill Pending); Security's own click just carries out whichever was already chosen.
+        // Yard Incharge decides the destination (Exited or Refill Pending); Security's own click just carries out whichever was already chosen.
         const finalStatus = isYardApproval ? action.outcome : (vehicle.yardExitOutcome || "Exited");
         update = {
           status: finalStatus, status_at: new Date(at).toISOString(),
