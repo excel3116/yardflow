@@ -18,6 +18,7 @@ const TRANSPORTERS = ["Self / Own Vehicle", "Balaji Transport", "Shree Ram Trans
 const MATERIALS = ["Copper", "Stainless Steel", "Scrap", "Aluminium", "CRC"];
 const DESTINATIONS = ["MTC Nanekarwadi", "MTC Kharabwadi", "MTC Talawade"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
+const SUPERVISORS = ["Ramesh Patil", "Suresh More", "Anil Deshmukh", "Vijay Kulkarni"];
 
 // Lifecycle: Expected -> Departed -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> (Idle) -> Exited -> Completed | Refill Pending
 const WAITING_STAGES = ["Expected", "Departed", "Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
@@ -32,13 +33,13 @@ const STATUS_ACTIONS = {
     { role: "Security", label: "Report", icon: ShieldCheck, type: "advance", next: "Reported", noFlag: true },
   ],
   Reported: [
-    { role: "Yard Incharge", label: "Approve Entry", icon: Warehouse, type: "advance", next: "Approved for Entry", noFlag: true },
+    { role: "Yard Incharge", label: "Approve Entry", icon: Warehouse, type: "assignSupervisor", next: "Approved for Entry", noFlag: true },
   ],
   "Approved for Entry": [
     { role: "Security", label: "Allow Inside", icon: ShieldCheck, type: "advance", next: "Arrived", noFlag: true },
   ],
   Arrived: [
-    { role: "Yard Supervisor", label: "Assign Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
+    { role: "Yard Incharge", label: "Assign Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
     { role: "Yard Supervisor", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
   ],
   "Yard Assigned": [
@@ -145,6 +146,7 @@ function rowToVehicle(row) {
     statusAt: row.status_at ? new Date(row.status_at).getTime() : Date.now(),
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     yard: row.yard,
+    assignedSupervisor: row.assigned_supervisor || null,
     partyNetWeight: row.party_net_weight,
     grossWeight: row.gross_weight,
     tareWeight: row.tare_weight,
@@ -363,6 +365,41 @@ function WeighInModal({ request, onClose, onSubmit }) {
   );
 }
 
+function AssignSupervisorModal({ request, onClose, onSubmit }) {
+  const [supervisor, setSupervisor] = useState(SUPERVISORS[0]);
+  if (!request) return null;
+
+  const submit = (e) => {
+    e.preventDefault();
+    onSubmit(supervisor);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-[8px] border border-[#2A323D] bg-[#14181E] p-5 shadow-2xl">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-[Barlow_Condensed] text-[20px] font-bold text-[#EDF1F5] tracking-wide">
+            Approve entry
+          </h3>
+          <button type="button" onClick={onClose} className="text-[#6B7686] hover:text-[#EDF1F5]"><X size={18} /></button>
+        </div>
+        <div className="text-[12px] text-[#8A93A3] mb-4 font-mono">
+          {request.vehicle.vehicleNumber} · assign a supervisor for this truck
+        </div>
+        <label className="block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1">Supervisor</label>
+        <select autoFocus value={supervisor} onChange={(e) => setSupervisor(e.target.value)}
+          className="w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] text-sm focus:outline-none focus:border-[#4C8CF5]">
+          {SUPERVISORS.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <div className="flex gap-2 mt-5">
+          <button type="button" onClick={onClose} className="flex-1 rounded-[4px] border border-[#2A323D] py-2 text-sm text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors">Cancel</button>
+          <button type="submit" className="flex-1 rounded-[4px] bg-[#4C8CF5] py-2 text-sm font-semibold text-[#08111F] hover:bg-[#659BF7] transition-colors">Approve & assign</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function Field({ label, value, mono }) {
   return (
     <div>
@@ -471,6 +508,7 @@ function DetailDrawer({ vehicle, role, now, onClose, onAdvance, onFlag, onClearF
               <Field label="Driver" value={vehicle.driver} />
               <Field label="Mobile" value={vehicle.mobile} mono />
               {vehicle.yard && <Field label="Yard slot" value={vehicle.yard} />}
+              {vehicle.assignedSupervisor && <Field label="Assigned supervisor" value={vehicle.assignedSupervisor} />}
             </div>
           </div>
 
@@ -947,6 +985,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [weighRequest, setWeighRequest] = useState(null);
+  const [supervisorRequest, setSupervisorRequest] = useState(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -1044,6 +1083,10 @@ function Dashboard({ actualRole, profile, onLogout }) {
       setWeighRequest({ vehicle, action });
       return;
     }
+    if (action.type === "assignSupervisor") {
+      setSupervisorRequest({ vehicle, action });
+      return;
+    }
 
     let idleReason = null;
     if (action.type === "idle") {
@@ -1112,6 +1155,26 @@ function Dashboard({ actualRole, profile, onLogout }) {
     setWeighRequest(null);
     setSelectedVehicle(null);
   }, [weighRequest, role]);
+
+  const handleSupervisorSubmit = useCallback(async (supervisor) => {
+    if (!supervisorRequest) return;
+    const { vehicle, action } = supervisorRequest;
+    const at = Date.now();
+    const actor = role === "Admin" ? action.role : role;
+
+    const update = {
+      status: action.next, status_at: new Date(at).toISOString(),
+      assigned_supervisor: supervisor,
+      history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved", note: `Assigned supervisor: ${supervisor}` }],
+      flagged: false, flag_reason: null, flagged_at: null,
+    };
+
+    const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
+    if (error) setConnectionError(error.message);
+    else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
+    setSupervisorRequest(null);
+    setSelectedVehicle(null);
+  }, [supervisorRequest, role]);
 
   const handleFlag = useCallback(async (vehicle) => {
     const reason = window.prompt(`Mark "${vehicle.vehicleNumber}" as not reached / not done yet.\n\nOptional short reason:`, "");
@@ -1374,6 +1437,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
       )}
       {showAddModal && <AddVehicleModal onClose={() => setShowAddModal(false)} onCreate={handleCreate} />}
       <WeighInModal request={weighRequest} onClose={() => setWeighRequest(null)} onSubmit={handleWeighSubmit} />
+      <AssignSupervisorModal request={supervisorRequest} onClose={() => setSupervisorRequest(null)} onSubmit={handleSupervisorSubmit} />
       {showWelcome && <WelcomeModal onClose={dismissWelcome} />}
     </div>
   );
