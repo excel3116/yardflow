@@ -19,11 +19,11 @@ const MATERIALS = ["Copper", "Stainless Steel", "Scrap", "Aluminium", "CRC"];
 const DESTINATIONS = ["MTC Nanekarwadi", "MTC Kharabwadi", "MTC Talawade"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
 
-// Lifecycle: Expected -> Departed -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> Exited -> Completed | Refill Pending
-const WAITING_STAGES = ["Expected", "Departed", "Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Exited"];
+// Lifecycle: Expected -> Departed -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> (Idle) -> Exited -> Completed | Refill Pending
+const WAITING_STAGES = ["Expected", "Departed", "Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
-// type: "advance" (simple move to next status), "assignYard", "secondWeigh", "exitApprove", "finalize"
+// type: "advance" (simple move to next status), "assignYard", "secondWeigh", "exitApprove", "idle", "finalize"
 const STATUS_ACTIONS = {
   Expected: [
     { role: "Vendor", label: "Mark Left MTC", icon: Truck, type: "advance", next: "Departed" },
@@ -51,6 +51,12 @@ const STATUS_ACTIONS = {
     { role: "Yard Supervisor", label: "Take Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded" },
   ],
   Unloaded: [
+    { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
+    { role: "Yard Incharge", label: "Mark Work Done", icon: LogOut, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Incharge", outcome: "Exited" },
+    { role: "Yard Incharge", label: "Send for Refill", icon: RotateCcw, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Incharge", outcome: "Refill Pending" },
+    { role: "Yard Incharge", label: "Mark Idle", icon: CircleDot, type: "idle", next: "Idle" },
+  ],
+  Idle: [
     { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
     { role: "Yard Incharge", label: "Mark Work Done", icon: LogOut, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Incharge", outcome: "Exited" },
     { role: "Yard Incharge", label: "Send for Refill", icon: RotateCcw, type: "exitApprove", approverKey: "yardExitApproved", approverLabel: "Yard Incharge", outcome: "Refill Pending" },
@@ -227,6 +233,7 @@ const DASHBOARD_CARDS = [
   { key: "WeighmentDone", label: "Weighment finished", icon: Scale, filter: (v) => v.netWeight != null },
   { key: "WeighmentOverdue", label: "Weighment overdue (>1h)", icon: AlertTriangle, filter: (v, now) => isWeighmentOverdue(v, now), pulse: true },
   { key: "ExitWait", label: "Awaiting exit approval", icon: LogOut, filter: (v) => v.status === "Unloaded", pulse: true },
+  { key: "IdleWait", label: "Idle in yard", icon: CircleDot, filter: (v) => v.status === "Idle", pulse: true },
   { key: "QCPending", label: "Awaiting QC decision", icon: ClipboardList, filter: (v) => v.status === "Exited" },
   { key: "Completed", label: "Completed today", icon: CheckCircle2, filter: (v) => v.status === "Completed" },
   { key: "Refill", label: "Refill pending", icon: RotateCcw, filter: (v) => v.status === "Refill Pending" },
@@ -378,7 +385,7 @@ function WeightReadout({ label, value, highlight, warn }) {
 }
 
 function ExitApprovalRow({ vehicle }) {
-  if (!["Unloaded", "Exited", "Refill Pending"].includes(vehicle.status)) return null;
+  if (!["Unloaded", "Idle", "Exited", "Refill Pending"].includes(vehicle.status)) return null;
   const bothDone = vehicle.status === "Exited" || vehicle.status === "Refill Pending";
   const secDone = vehicle.securityExitApproved || bothDone;
   const yardDone = vehicle.yardExitApproved || bothDone;
@@ -761,6 +768,7 @@ const ACTION_LABELS = {
   "First Weighment": "First weighment recorded",
   Unloading: "Sent for unloading",
   Unloaded: "Second weighment recorded",
+  Idle: "Marked idle",
   "Exit Approval": "Approved exit",
   Exited: "Exit finalized",
   Completed: "Marked completed",
@@ -1037,6 +1045,13 @@ function Dashboard({ actualRole, profile, onLogout }) {
       return;
     }
 
+    let idleReason = null;
+    if (action.type === "idle") {
+      const input = window.prompt(`Mark "${vehicle.vehicleNumber}" as idle (parked, not exiting yet).\n\nOptional reason:`, "");
+      if (input === null) return;
+      idleReason = input || null;
+    }
+
     const at = Date.now();
     const actor = role === "Admin" ? action.role : role;
 
@@ -1068,6 +1083,8 @@ function Dashboard({ actualRole, profile, onLogout }) {
       }
     } else if (action.type === "finalize") {
       update = { status: action.outcome, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.outcome, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
+    } else if (action.type === "idle") {
+      update = { status: action.next, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved", note: idleReason }], flagged: false, flag_reason: null, flagged_at: null };
     }
 
     const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
