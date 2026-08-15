@@ -21,19 +21,17 @@ const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B 
 const SUPERVISORS = ["Ramesh Patil", "Suresh More", "Anil Deshmukh", "Vijay Kulkarni"];
 
 // Lifecycle: Expected -> Departed -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> (Idle) -> Exited -> Completed | Refill Pending
-const WAITING_STAGES = ["Expected", "Departed", "Reported", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
+const WAITING_STAGES = ["Expected", "Departed", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
-// type: "advance" (simple move to next status), "assignYard", "secondWeigh", "exitApprove", "idle", "finalize"
+// type: "advance" (simple move to next status), "assignYard", "secondWeigh", "exitApprove", "gateApprove", "idle", "finalize"
 const STATUS_ACTIONS = {
   Expected: [
     { role: "Vendor", label: "Mark Left MTC", icon: Truck, type: "advance", next: "Departed" },
   ],
   Departed: [
-    { role: "Security", label: "Report", icon: ShieldCheck, type: "advance", next: "Reported", noFlag: true },
-  ],
-  Reported: [
-    { role: "Yard Incharge", label: "Approve Entry", icon: Warehouse, type: "assignSupervisor", next: "Approved for Entry", noFlag: true },
+    { role: "Security", label: "Report", icon: ShieldCheck, type: "gateApprove", approverKey: "securityReported", approverLabel: "Security", next: "Approved for Entry" },
+    { role: "Yard Incharge", label: "Approve Entry", icon: Warehouse, type: "assignSupervisor", approverKey: "yardEntryApproved", approverLabel: "Yard Incharge", next: "Approved for Entry" },
   ],
   "Approved for Entry": [
     { role: "Security", label: "Allow Inside", icon: ShieldCheck, type: "advance", next: "Arrived", noFlag: true },
@@ -72,7 +70,7 @@ function actionsFor(vehicle, role) {
   const list = STATUS_ACTIONS[vehicle.status] || [];
   return list.filter((a) => {
     if (role !== "Admin" && a.role !== role) return false;
-    if (a.type === "exitApprove" && vehicle[a.approverKey]) return false; // already approved by that role
+    if (a.approverKey && vehicle[a.approverKey]) return false; // already approved by that role
     return true;
   });
 }
@@ -147,6 +145,8 @@ function rowToVehicle(row) {
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     yard: row.yard,
     assignedSupervisor: row.assigned_supervisor || null,
+    securityReported: row.security_reported || false,
+    yardEntryApproved: row.yard_entry_approved || false,
     partyNetWeight: row.party_net_weight,
     grossWeight: row.gross_weight,
     tareWeight: row.tare_weight,
@@ -224,9 +224,8 @@ function StatCard({ card, count, active, onClick }) {
 
 const DASHBOARD_CARDS = [
   { key: "Expected", label: "Awaiting departure (MTC)", icon: Clock, filter: (v) => v.status === "Expected", pulse: true },
-  { key: "DepartedWait", label: "Awaiting gate report", icon: Truck, filter: (v) => v.status === "Departed", pulse: true },
+  { key: "DepartedWait", label: "Awaiting gate approval", icon: Truck, filter: (v) => v.status === "Departed", pulse: true },
   { key: "Inside", label: "Inside plant", icon: Truck, filter: (v) => !["Expected", "Departed", "Completed", "Refill Pending"].includes(v.status) },
-  { key: "ReportWait", label: "Awaiting yard approval", icon: Warehouse, filter: (v) => v.status === "Reported", pulse: true },
   { key: "AllowWait", label: "Awaiting security allow-in", icon: ShieldCheck, filter: (v) => v.status === "Approved for Entry", pulse: true },
   { key: "YardWait", label: "Awaiting yard / first weighment", icon: Warehouse, filter: (v) => v.status === "Arrived" },
   { key: "FirstWeighWait", label: "Awaiting first weighment", icon: Scale, filter: (v) => v.status === "Yard Assigned", pulse: true },
@@ -421,6 +420,25 @@ function WeightReadout({ label, value, highlight, warn }) {
   );
 }
 
+function GateApprovalRow({ vehicle }) {
+  if (!["Departed", "Approved for Entry"].includes(vehicle.status)) return null;
+  const bothDone = vehicle.status === "Approved for Entry";
+  const secDone = vehicle.securityReported || bothDone;
+  const yardDone = vehicle.yardEntryApproved || bothDone;
+  return (
+    <div className="flex items-center gap-4 text-[12px] mb-3">
+      <div className="flex items-center gap-1.5">
+        {secDone ? <CheckCircle2 size={13} className="text-[#3ECF8E]" /> : <Circle size={13} className="text-[#5A6270]" />}
+        <span className={secDone ? "text-[#8A93A3]" : "text-[#5A6270]"}>Security reported</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        {yardDone ? <CheckCircle2 size={13} className="text-[#3ECF8E]" /> : <Circle size={13} className="text-[#5A6270]" />}
+        <span className={yardDone ? "text-[#8A93A3]" : "text-[#5A6270]"}>Yard incharge approval</span>
+      </div>
+    </div>
+  );
+}
+
 function ExitApprovalRow({ vehicle }) {
   if (!["Unloaded", "Idle", "Exited", "Refill Pending"].includes(vehicle.status)) return null;
   const bothDone = vehicle.status === "Exited" || vehicle.status === "Refill Pending";
@@ -543,6 +561,7 @@ function DetailDrawer({ vehicle, role, now, onClose, onAdvance, onFlag, onClearF
             );
           })()}
 
+          <GateApprovalRow vehicle={vehicle} />
           <ExitApprovalRow vehicle={vehicle} />
 
           <div className="mb-6">
@@ -807,6 +826,7 @@ const ACTION_LABELS = {
   Unloading: "Sent for unloading",
   Unloaded: "Second weighment recorded",
   Idle: "Marked idle",
+  "Gate Approval": "Approved gate entry",
   "Exit Approval": "Approved exit",
   Exited: "Exit finalized",
   Completed: "Marked completed",
@@ -1124,6 +1144,21 @@ function Dashboard({ actualRole, profile, onLogout }) {
           history: [...(vehicle.history || []), approvalEntry],
         };
       }
+    } else if (action.type === "gateApprove") {
+      const approvalEntry = { status: "Gate Approval", at, role: action.approverLabel, outcome: "approved" };
+      if (vehicle.yardEntryApproved) {
+        update = {
+          status: action.next, status_at: new Date(at).toISOString(),
+          security_reported: true,
+          history: [...(vehicle.history || []), approvalEntry, { status: action.next, at, role: null, outcome: "approved" }],
+          flagged: false, flag_reason: null, flagged_at: null,
+        };
+      } else {
+        update = {
+          security_reported: true,
+          history: [...(vehicle.history || []), approvalEntry],
+        };
+      }
     } else if (action.type === "finalize") {
       update = { status: action.outcome, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.outcome, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
     } else if (action.type === "idle") {
@@ -1161,13 +1196,22 @@ function Dashboard({ actualRole, profile, onLogout }) {
     const { vehicle, action } = supervisorRequest;
     const at = Date.now();
     const actor = role === "Admin" ? action.role : role;
+    const approvalEntry = { status: "Gate Approval", at, role: actor, outcome: "approved", note: `Assigned supervisor: ${supervisor}` };
 
-    const update = {
-      status: action.next, status_at: new Date(at).toISOString(),
-      assigned_supervisor: supervisor,
-      history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved", note: `Assigned supervisor: ${supervisor}` }],
-      flagged: false, flag_reason: null, flagged_at: null,
-    };
+    let update;
+    if (vehicle.securityReported) {
+      update = {
+        status: action.next, status_at: new Date(at).toISOString(),
+        yard_entry_approved: true, assigned_supervisor: supervisor,
+        history: [...(vehicle.history || []), approvalEntry, { status: action.next, at, role: null, outcome: "approved" }],
+        flagged: false, flag_reason: null, flagged_at: null,
+      };
+    } else {
+      update = {
+        yard_entry_approved: true, assigned_supervisor: supervisor,
+        history: [...(vehicle.history || []), approvalEntry],
+      };
+    }
 
     const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
     if (error) setConnectionError(error.message);
