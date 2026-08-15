@@ -24,7 +24,7 @@ const SUPERVISORS = ["Ramesh Patil", "Suresh More", "Anil Deshmukh", "Vijay Kulk
 const WAITING_STAGES = ["Expected", "Departed", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
-// type: "advance" (simple move to next status), "assignYard", "assignSupervisor", "secondWeigh", "exitApprove", "gateApprove", "idle", "finalize"
+// type: "advance" (simple move to next status), "assignYard", "assignSupervisor", "planYard", "secondWeigh", "exitApprove", "gateApprove", "idle", "finalize"
 // requiresFlag: action isn't offered until vehicle[requiresFlag] is already true (e.g. Approve Entry waits for Security's Report)
 const STATUS_ACTIONS = {
   Expected: [
@@ -33,6 +33,7 @@ const STATUS_ACTIONS = {
   Departed: [
     { role: "Security", label: "Report", icon: ShieldCheck, type: "gateApprove", approverKey: "securityReported", approverLabel: "Security", next: "Approved for Entry" },
     { role: "Yard Incharge", label: "Assign Supervisor", icon: Warehouse, type: "assignSupervisor", approverKey: "assignedSupervisor" },
+    { role: "Yard Supervisor", label: "Plan Yard", icon: Warehouse, type: "planYard", approverKey: "plannedYard", requiresFlag: "assignedSupervisor" },
     { role: "Yard Incharge", label: "Approve Entry", icon: Warehouse, type: "gateApprove", approverKey: "yardEntryApproved", approverLabel: "Yard Incharge", next: "Approved for Entry", requiresFlag: "securityReported" },
   ],
   "Approved for Entry": [
@@ -148,6 +149,7 @@ function rowToVehicle(row) {
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     yard: row.yard,
     assignedSupervisor: row.assigned_supervisor || null,
+    plannedYard: row.planned_yard || null,
     securityReported: row.security_reported || false,
     yardEntryApproved: row.yard_entry_approved || false,
     partyNetWeight: row.party_net_weight,
@@ -402,6 +404,41 @@ function AssignSupervisorModal({ request, onClose, onSubmit }) {
   );
 }
 
+function PlanYardModal({ request, onClose, onSubmit }) {
+  const [yard, setYard] = useState(YARDS[0]);
+  if (!request) return null;
+
+  const submit = (e) => {
+    e.preventDefault();
+    onSubmit(yard);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-[8px] border border-[#2A323D] bg-[#14181E] p-5 shadow-2xl">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-[Barlow_Condensed] text-[20px] font-bold text-[#EDF1F5] tracking-wide">
+            Plan yard
+          </h3>
+          <button type="button" onClick={onClose} className="text-[#6B7686] hover:text-[#EDF1F5]"><X size={18} /></button>
+        </div>
+        <div className="text-[12px] text-[#8A93A3] mb-4 font-mono">
+          {request.vehicle.vehicleNumber} · pick the yard to allot once this truck arrives
+        </div>
+        <label className="block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1">Yard</label>
+        <select autoFocus value={yard} onChange={(e) => setYard(e.target.value)}
+          className="w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] text-sm focus:outline-none focus:border-[#4C8CF5]">
+          {YARDS.map((y) => <option key={y}>{y}</option>)}
+        </select>
+        <div className="flex gap-2 mt-5">
+          <button type="button" onClick={onClose} className="flex-1 rounded-[4px] border border-[#2A323D] py-2 text-sm text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors">Cancel</button>
+          <button type="submit" className="flex-1 rounded-[4px] bg-[#4C8CF5] py-2 text-sm font-semibold text-[#08111F] hover:bg-[#659BF7] transition-colors">Plan</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function Field({ label, value, mono }) {
   return (
     <div>
@@ -530,6 +567,7 @@ function DetailDrawer({ vehicle, role, now, onClose, onAdvance, onFlag, onClearF
               <Field label="Mobile" value={vehicle.mobile} mono />
               {vehicle.yard && <Field label="Yard slot" value={vehicle.yard} />}
               {vehicle.assignedSupervisor && <Field label="Assigned supervisor" value={vehicle.assignedSupervisor} />}
+              {!vehicle.yard && vehicle.plannedYard && <Field label="Planned yard" value={vehicle.plannedYard} />}
             </div>
           </div>
 
@@ -823,6 +861,7 @@ const ACTION_LABELS = {
   Departed: "Left MTC",
   Reported: "Reported at gate",
   "Supervisor Assigned": "Assigned supervisor",
+  "Yard Planned": "Planned yard slot",
   "Approved for Entry": "Approved entry (yard)",
   Arrived: "Allowed inside",
   "Yard Assigned": "Assigned yard",
@@ -1010,6 +1049,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [weighRequest, setWeighRequest] = useState(null);
   const [supervisorRequest, setSupervisorRequest] = useState(null);
+  const [yardPlanRequest, setYardPlanRequest] = useState(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -1111,6 +1151,10 @@ function Dashboard({ actualRole, profile, onLogout }) {
       setSupervisorRequest({ vehicle, action });
       return;
     }
+    if (action.type === "planYard") {
+      setYardPlanRequest({ vehicle, action });
+      return;
+    }
 
     let idleReason = null;
     if (action.type === "idle") {
@@ -1127,7 +1171,8 @@ function Dashboard({ actualRole, profile, onLogout }) {
     if (action.type === "advance") {
       update = { status: action.next, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
     } else if (action.type === "assignYard") {
-      update = { status: action.next, status_at: new Date(at).toISOString(), yard: YARDS[randomBetween(0, YARDS.length - 1)], history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
+      const yard = vehicle.plannedYard || YARDS[randomBetween(0, YARDS.length - 1)];
+      update = { status: action.next, status_at: new Date(at).toISOString(), yard, history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved", note: vehicle.plannedYard ? `Allotted the planned yard: ${yard}` : null }], flagged: false, flag_reason: null, flagged_at: null };
     } else if (action.type === "exitApprove") {
       const isYardApproval = action.approverKey === "yardExitApproved";
       const otherApproved = isYardApproval ? vehicle.securityExitApproved : vehicle.yardExitApproved;
@@ -1213,6 +1258,23 @@ function Dashboard({ actualRole, profile, onLogout }) {
     setSupervisorRequest(null);
     setSelectedVehicle(null);
   }, [supervisorRequest, role]);
+
+  const handlePlanYardSubmit = useCallback(async (yard) => {
+    if (!yardPlanRequest) return;
+    const { vehicle, action } = yardPlanRequest;
+    const at = Date.now();
+    const actor = role === "Admin" ? action.role : role;
+    const update = {
+      planned_yard: yard,
+      history: [...(vehicle.history || []), { status: "Yard Planned", at, role: actor, outcome: "approved", note: `Planned yard: ${yard}` }],
+    };
+
+    const { data, error } = await supabase.from("vehicles").update(update).eq("id", vehicle.id).select();
+    if (error) setConnectionError(error.message);
+    else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
+    setYardPlanRequest(null);
+    setSelectedVehicle(null);
+  }, [yardPlanRequest, role]);
 
   const handleFlag = useCallback(async (vehicle) => {
     const reason = window.prompt(`Mark "${vehicle.vehicleNumber}" as not reached / not done yet.\n\nOptional short reason:`, "");
@@ -1476,6 +1538,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
       {showAddModal && <AddVehicleModal onClose={() => setShowAddModal(false)} onCreate={handleCreate} />}
       <WeighInModal request={weighRequest} onClose={() => setWeighRequest(null)} onSubmit={handleWeighSubmit} />
       <AssignSupervisorModal request={supervisorRequest} onClose={() => setSupervisorRequest(null)} onSubmit={handleSupervisorSubmit} />
+      <PlanYardModal request={yardPlanRequest} onClose={() => setYardPlanRequest(null)} onSubmit={handlePlanYardSubmit} />
       {showWelcome && <WelcomeModal onClose={dismissWelcome} />}
     </div>
   );
