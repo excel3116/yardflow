@@ -6,6 +6,7 @@ import {
   RotateCcw, Sparkles, MousePointerClick, Layers, CircleDot, Circle
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
+import { initPushNotifications } from "./push";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1620,6 +1621,10 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profileError, setProfileError] = useState("");
+
+  useEffect(() => {
+    initPushNotifications();
+  }, []);
 
   const loadProfile = useCallback(async (currentSession) => {
     if (!currentSession) { setProfile(null); return; }
