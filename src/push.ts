@@ -1,6 +1,13 @@
 import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 
+// PushNotifications.register() reaches into Firebase Messaging, which
+// crashes the whole app on launch (uncaught native exception, not
+// something a JS try/catch can stop) if google-services.json hasn't been
+// added yet. Flip this to true only after dropping google-services.json
+// into android/app/ and rebuilding — see ANDROID_BUILD.md.
+const PUSH_ENABLED = false;
+
 // Registers this device for push notifications when running as the native
 // Android app. No-ops on the web build — Capacitor.isNativePlatform() is
 // false there, so this file has zero effect on the browser version of the app.
@@ -10,7 +17,7 @@ import { PushNotifications } from "@capacitor/push-notifications";
 // needs a server-side trigger calling Firebase Cloud Messaging, which isn't
 // set up yet — see ANDROID_BUILD.md for what's still needed.
 export async function initPushNotifications() {
-  if (!Capacitor.isNativePlatform()) return;
+  if (!Capacitor.isNativePlatform() || !PUSH_ENABLED) return;
 
   const permission = await PushNotifications.requestPermissions();
   if (permission.receive !== "granted") return;

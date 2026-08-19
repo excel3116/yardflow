@@ -54,6 +54,12 @@ Services Gradle plugin the moment a `google-services.json` file is present), and
 `src/push.ts` requests permission + registers the device for a token on app start
 (no-ops entirely on the web build).
 
+**Currently disabled** — `src/push.ts` has a `PUSH_ENABLED = false` flag at the top.
+Calling `PushNotifications.register()` before Firebase is configured crashes the app
+immediately on launch (`FirebaseApp is not initialized`, an uncaught native exception —
+not something a try/catch can prevent), so it's switched off until you've done the
+Firebase setup below.
+
 To actually get this working, in order:
 
 1. **Create a Firebase project** at [console.firebase.google.com](https://console.firebase.google.com)
@@ -62,10 +68,11 @@ To actually get this working, in order:
 3. Download the generated `google-services.json` and place it at `android/app/google-services.json`.
    Once that file exists, the Gradle build will automatically pick it up — no other config
    changes needed.
-4. Rebuild (`npx cap sync android` then rebuild the APK as above). The app will now register
-   a real FCM token on launch — check `adb logcat` or Android Studio's Logcat for
-   "Push registration token:" to confirm.
-5. **Sending** notifications (e.g. "new truck Departed → notify Security") isn't built yet —
+4. In `src/push.ts`, flip `PUSH_ENABLED` to `true`.
+5. Rebuild (`npm run build && npx cap sync android` then rebuild the APK as above). The app
+   will now register a real FCM token on launch — check `adb logcat` or Android Studio's
+   Logcat for "Push registration token:" to confirm.
+6. **Sending** notifications (e.g. "new truck Departed → notify Security") isn't built yet —
    that needs a server-side trigger (a Supabase Edge Function or webhook, triggered on the
    relevant DB change, calling the Firebase Admin SDK with your service-account credentials)
    to actually push a message to registered tokens. That's a separate follow-up once steps 1–4
