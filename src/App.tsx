@@ -7,9 +7,7 @@ import {
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
-// ---------------------------------------------------------------------------
 // Constants
-// ---------------------------------------------------------------------------
 
 const ROLES = ["Vendor", "Security", "Yard Supervisor", "Yard Incharge", "QC", "Admin"];
 
@@ -77,9 +75,6 @@ function actionsFor(vehicle, role) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function randomBetween(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function minutesAgo(mins) { return Date.now() - mins * 60 * 1000; }
