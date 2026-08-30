@@ -15,9 +15,12 @@
     "@capacitor/push-notifications": "^8.1.2",
     "@supabase/supabase-js": "^2.110.0",
     "@tailwindcss/postcss": "^4.3.2",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.23.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",

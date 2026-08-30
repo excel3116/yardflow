@@ -3,8 +3,12 @@ import {
   Truck, Scale, PackageCheck, ShieldCheck, LogOut, Plus, X, Search,
   Clock, ChevronRight, AlertTriangle, CheckCircle2, Warehouse, ClipboardList,
   BarChart3, Gauge, Radio, ArrowRight, Filter, User, Wifi, WifiOff,
-  RotateCcw, Sparkles, MousePointerClick, Layers, CircleDot, Circle
+  RotateCcw, Sparkles, MousePointerClick, Layers, CircleDot, Circle,
+  Mail, FileSpreadsheet, FileText
 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import { autoTable } from "jspdf-autotable";
 import { supabase } from "./supabaseClient";
 import { initPushNotifications } from "./push";
 
@@ -17,7 +21,8 @@ const ROLES = ["Vendor", "Security", "Yard Supervisor", "Yard Incharge", "Weighb
 const VENDORS = ["Bajaj", "Tata Motors", "Mahindra", "GE"];
 const TRANSPORTERS = ["Self / Own Vehicle", "Balaji Transport", "Shree Ram Transport"];
 const MATERIALS = ["Copper", "Stainless Steel", "Scrap", "Aluminium", "CRC"];
-const DESTINATIONS = ["MTC Nanekarwadi", "MTC Kharabwadi", "MTC Talawade"];
+// Only Nanekarwadi is live for now — re-add the others here when ready.
+const DESTINATIONS = ["MTC Nanekarwadi"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
 const SUPERVISORS = ["Ramesh Patil", "Suresh More", "Anil Deshmukh", "Vijay Kulkarni"];
 
@@ -106,8 +111,6 @@ function formatElapsed(ms) {
 
 function formatClock(ts) { return new Date(ts).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }); }
 function formatDateTime(ts) { return new Date(ts).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); }
-function dayKey(ts) { return new Date(ts).toLocaleDateString("en-CA"); }
-function formatDayLabel(key) { return new Date(`${key}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }); }
 
 function arrivedAt(vehicle) {
   const entry = (vehicle.history || []).find((h) => h.status === "Arrived");
@@ -252,8 +255,18 @@ function AddVehicleModal({ onClose, onCreate }) {
     vehicleNumber: "", driver: "", mobile: "", vendor: VENDORS[0], transporter: TRANSPORTERS[0],
     material: MATERIALS[0], po: "", invoiceNo: "", destination: DESTINATIONS[0], partyNetWeight: "",
   });
+  const [mobileError, setMobileError] = useState("");
   const update = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const submit = (e) => { e.preventDefault(); if (!form.vehicleNumber.trim()) return; onCreate(form); };
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.vehicleNumber.trim()) return;
+    if (form.mobile && !/^\d{10}$/.test(form.mobile)) {
+      setMobileError("Mobile number must be exactly 10 digits.");
+      return;
+    }
+    setMobileError("");
+    onCreate(form);
+  };
   const inputCls = "w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] text-sm focus:outline-none focus:border-[#4C8CF5]";
   const labelCls = "block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1";
 
@@ -276,7 +289,10 @@ function AddVehicleModal({ onClose, onCreate }) {
             </div>
             <div>
               <label className={labelCls}>Mobile</label>
-              <input value={form.mobile} onChange={update("mobile")} placeholder="9812345678" className={`${inputCls} font-mono`} />
+              <input value={form.mobile} inputMode="numeric" maxLength={10}
+                onChange={(e) => { setForm((f) => ({ ...f, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) })); setMobileError(""); }}
+                placeholder="9812345678" className={`${inputCls} font-mono`} />
+              {mobileError && <div className="text-[11px] text-[#FF5C5C] mt-1">{mobileError}</div>}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -648,32 +664,159 @@ function avgBetween(vehicles, fromStatus, toStatus) {
   return diffs.reduce((a, b) => a + b, 0) / diffs.length;
 }
 
-function ReportsView({ vehicles }) {
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-
-  const inRange = useCallback((ts) => {
-    if (fromDate && ts < new Date(fromDate).getTime()) return false;
-    if (toDate && ts > new Date(toDate).getTime() + 24 * 60 * 60 * 1000 - 1) return false;
+function makeRangeFilter(from, to) {
+  return (ts) => {
+    if (from && ts < new Date(from).getTime()) return false;
+    if (to && ts > new Date(to).getTime() + 24 * 60 * 60 * 1000 - 1) return false;
     return true;
-  }, [fromDate, toDate]);
+  };
+}
 
-  const filteredVehicles = useMemo(() => {
-    if (!fromDate && !toDate) return vehicles;
-    return vehicles.filter((v) => (v.history || []).some((h) => inRange(h.at)));
-  }, [vehicles, fromDate, toDate, inRange]);
+// ---------------------------------------------------------------------------
+// Report export — Excel (xlsx), PDF (jsPDF + autoTable), Email (mailto)
+// ---------------------------------------------------------------------------
 
-  const metrics = [
-    { label: "Avg. wait for first weighment", value: avgBetween(filteredVehicles, "Arrived", "First Weighment") },
-    { label: "Avg. unloading time", value: avgBetween(filteredVehicles, "First Weighment", "Unloaded") },
-    { label: "Avg. exit approval time", value: avgBetween(filteredVehicles, "Unloaded", "Exited") },
-    { label: "Avg. total turnaround", value: avgBetween(filteredVehicles, "Arrived", "Exited") },
-  ];
+function exportExcel(filename, sheetName, headers, rows) {
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  XLSX.writeFile(wb, filename);
+}
 
-  const groupBy = (keyFn) => {
+function exportPDF(filename, title, headers, rows) {
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text(title, 14, 15);
+  autoTable(doc, { head: [headers], body: rows, startY: 20, styles: { fontSize: 8 }, headStyles: { fillColor: [76, 140, 245] } });
+  doc.save(filename);
+}
+
+// No backend to send mail from, so this opens the user's own mail app with
+// the report summarized in the body — they attach the Excel/PDF they just
+// downloaded themselves.
+function emailReport(subject, headers, rows) {
+  const lines = [headers.join(" | "), ...rows.map((r) => r.join(" | "))];
+  const body = `${lines.join("\n")}\n\n(Attach the Excel or PDF you just downloaded to this email.)`;
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+function ReportRangePicker({ from, to, onFrom, onTo, onClear }) {
+  const inputCls = "rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-2.5 py-1.5 text-[#EDF1F5] text-[12px] font-mono focus:outline-none focus:border-[#4C8CF5]";
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">From</label>
+      <input type="date" value={from} onChange={(e) => onFrom(e.target.value)} className={inputCls} />
+      <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">To</label>
+      <input type="date" value={to} onChange={(e) => onTo(e.target.value)} className={inputCls} />
+      {(from || to) && (
+        <button onClick={onClear} className="flex items-center gap-1 text-[11px] text-[#8A93A3] hover:text-[#EDF1F5] border border-[#242B34] rounded-[4px] px-2 py-1.5">
+          <X size={11} /> Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ReportExportBar({ onExcel, onPdf, onEmail }) {
+  const btnCls = "flex items-center gap-1.5 text-[11px] text-[#8A93A3] hover:text-[#EDF1F5] border border-[#242B34] hover:border-[#3A4451] rounded-[4px] px-2.5 py-1.5 transition-colors";
+  return (
+    <div className="flex items-center gap-2">
+      <button onClick={onExcel} className={btnCls}><FileSpreadsheet size={12} /> Excel</button>
+      <button onClick={onPdf} className={btnCls}><FileText size={12} /> PDF</button>
+      <button onClick={onEmail} className={btnCls}><Mail size={12} /> Email</button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Daily report — every vehicle with activity in the range, and its current status
+// ---------------------------------------------------------------------------
+
+function DailyReport({ vehicles }) {
+  const today = new Date().toLocaleDateString("en-CA");
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+
+  const inRange = useMemo(() => makeRangeFilter(from, to), [from, to]);
+  const rows = useMemo(
+    () => vehicles.filter((v) => (v.history || []).some((h) => inRange(h.at))).sort((a, b) => b.statusAt - a.statusAt),
+    [vehicles, inRange]
+  );
+
+  const exportHeaders = ["Vehicle No.", "Driver", "Vendor", "Transporter", "Material", "Status", "Last updated"];
+  const exportRows = rows.map((v) => [v.vehicleNumber, v.driver || "—", v.vendor, v.transporter, v.material, v.status, formatDateTime(v.statusAt)]);
+  const filenameBase = `yardflow-daily-report_${from || "all"}_to_${to || "all"}`;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <div>
+          <div className="text-[13px] font-semibold text-[#EDF1F5]">Daily report</div>
+          <div className="text-[11px] text-[#8A93A3]">Every vehicle with activity in this range, and its current status.</div>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <ReportRangePicker from={from} to={to} onFrom={setFrom} onTo={setTo} onClear={() => { setFrom(""); setTo(""); }} />
+          <ReportExportBar
+            onExcel={() => exportExcel(`${filenameBase}.xlsx`, "Daily report", exportHeaders, exportRows)}
+            onPdf={() => exportPDF(`${filenameBase}.pdf`, "YARDFLOW — Daily report", exportHeaders, exportRows)}
+            onEmail={() => emailReport("YARDFLOW Daily report", exportHeaders, exportRows)}
+          />
+        </div>
+      </div>
+      <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
+        <table className="w-full text-[13px] min-w-[760px]">
+          <thead>
+            <tr className="bg-[#161B22] text-[#6B7686] text-[11px] uppercase tracking-wide">
+              <th className="text-left px-4 py-2 font-medium">Vehicle</th>
+              <th className="text-left px-4 py-2 font-medium">Driver</th>
+              <th className="text-left px-4 py-2 font-medium">Vendor</th>
+              <th className="text-left px-4 py-2 font-medium">Transporter</th>
+              <th className="text-left px-4 py-2 font-medium">Status</th>
+              <th className="text-right px-4 py-2 font-medium">Last updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((v) => {
+              const sc = statusColor(v.status);
+              return (
+                <tr key={v.id} className="border-t border-[#242B34]">
+                  <td className="px-4 py-2.5 text-[#DCE2E8] font-mono">{v.vehicleNumber}</td>
+                  <td className="px-4 py-2.5 text-[#8A93A3]">{v.driver || "—"}</td>
+                  <td className="px-4 py-2.5 text-[#8A93A3]">{v.vendor}</td>
+                  <td className="px-4 py-2.5 text-[#8A93A3]">{v.transporter}</td>
+                  <td className="px-4 py-2.5"><Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill></td>
+                  <td className="px-4 py-2.5 text-right font-mono text-[#8A93A3]">{formatDateTime(v.statusAt)}</td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-[#5A6270] text-[13px]">No vehicles active in this range.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Vendor / transporter reports — aggregate stats grouped by name
+// ---------------------------------------------------------------------------
+
+function GroupReport({ vehicles, title, description, groupKey, filenamePrefix }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const inRange = useMemo(() => makeRangeFilter(from, to), [from, to]);
+  const filtered = useMemo(
+    () => (!from && !to) ? vehicles : vehicles.filter((v) => (v.history || []).some((h) => inRange(h.at))),
+    [vehicles, from, to, inRange]
+  );
+
+  const rows = useMemo(() => {
     const map = {};
-    filteredVehicles.forEach((v) => {
-      const key = keyFn(v) || "—";
+    filtered.forEach((v) => {
+      const key = (groupKey === "vendor" ? v.vendor : v.transporter) || "—";
       map[key] = map[key] || { total: 0, completed: 0, refill: 0, netWeight: 0, group: [] };
       map[key].total += 1;
       if (v.status === "Completed") map[key].completed += 1;
@@ -690,37 +833,33 @@ function ReportsView({ vehicles }) {
         avgTurnaround: avgBetween(s.group, "Arrived", "Exited"),
       }])
       .sort((a, b) => b[1].total - a[1].total);
-  };
+  }, [filtered, groupKey]);
 
-  const vendorStats = useMemo(() => groupBy((v) => v.vendor), [filteredVehicles]);
-  const transporterStats = useMemo(() => groupBy((v) => v.transporter), [filteredVehicles]);
+  const exportHeaders = ["Name", "Total trips", "Completed", "Refill pending", "Total net wt. (kg)", "Avg. first weigh wait", "Avg. unloading time", "Avg. exit approval", "Avg. turnaround"];
+  const exportRows = rows.map(([name, s]) => [
+    name, s.total, s.completed, s.refill, s.netWeight,
+    s.avgFirstWeigh != null ? formatElapsed(s.avgFirstWeigh) : "—",
+    s.avgUnloading != null ? formatElapsed(s.avgUnloading) : "—",
+    s.avgExit != null ? formatElapsed(s.avgExit) : "—",
+    s.avgTurnaround != null ? formatElapsed(s.avgTurnaround) : "—",
+  ]);
+  const filenameBase = `${filenamePrefix}_${from || "all"}_to_${to || "all"}`;
 
-  const dailyBreakdown = useMemo(() => {
-    const map = {};
-    vehicles.forEach((v) => {
-      (v.history || []).forEach((h) => {
-        if (!inRange(h.at)) return;
-        const key = dayKey(h.at);
-        map[key] = map[key] || { created: 0, departed: 0, completed: 0, refill: 0, flagged: 0, netWeight: 0 };
-        if (h.status === "Expected") map[key].created += 1;
-        else if (h.status === "Departed") map[key].departed += 1;
-        else if (h.status === "Completed") map[key].completed += 1;
-        else if (h.status === "Refill Pending") map[key].refill += 1;
-        else if (h.status === "Flagged") map[key].flagged += 1;
-        else if (h.status === "Unloaded" && v.netWeight != null) map[key].netWeight += v.netWeight;
-      });
-    });
-    const rows = Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
-    return fromDate || toDate ? rows : rows.slice(0, 14);
-  }, [vehicles, fromDate, toDate, inRange]);
-
-  const inputCls = "rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-2.5 py-1.5 text-[#EDF1F5] text-[12px] font-mono focus:outline-none focus:border-[#4C8CF5]";
-
-  const GroupTable = ({ title, description, rows }) => (
-    <div className="mb-6">
-      <div className="mb-2">
-        <div className="text-[11px] uppercase tracking-wide text-[#6B7686]">{title}</div>
-        {description && <div className="text-[11px] text-[#5A6270] mt-0.5">{description}</div>}
+  return (
+    <div>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <div>
+          <div className="text-[13px] font-semibold text-[#EDF1F5]">{title}</div>
+          <div className="text-[11px] text-[#8A93A3]">{description}</div>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <ReportRangePicker from={from} to={to} onFrom={setFrom} onTo={setTo} onClear={() => { setFrom(""); setTo(""); }} />
+          <ReportExportBar
+            onExcel={() => exportExcel(`${filenameBase}.xlsx`, title, exportHeaders, exportRows)}
+            onPdf={() => exportPDF(`${filenameBase}.pdf`, `YARDFLOW — ${title}`, exportHeaders, exportRows)}
+            onEmail={() => emailReport(`YARDFLOW ${title}`, exportHeaders, exportRows)}
+          />
+        </div>
       </div>
       <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
         <table className="w-full text-[13px] min-w-[900px]">
@@ -751,81 +890,45 @@ function ReportsView({ vehicles }) {
                 <td className="px-4 py-2.5 text-right font-mono text-[#EDF1F5]">{s.avgTurnaround != null ? formatElapsed(s.avgTurnaround) : "—"}</td>
               </tr>
             ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={9} className="px-4 py-10 text-center text-[#5A6270] text-[13px]">No activity in this range.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Reports — tabbed, each with its own date range and export options
+// ---------------------------------------------------------------------------
+
+function ReportsView({ vehicles }) {
+  const [tab, setTab] = useState("daily");
+  const tabs = [
+    { key: "daily", label: "Daily" },
+    { key: "vendor", label: "By vendor" },
+    { key: "transporter", label: "By transporter" },
+  ];
 
   return (
     <div>
-      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-        <div>
-          <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Reports</div>
-          <div className="text-[12px] text-[#8A93A3]">Turnaround times and activity, broken down by day, vendor, and transporter.</div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">From</label>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={inputCls} />
-          <label className="text-[11px] text-[#6B7686] uppercase tracking-wide">To</label>
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={inputCls} />
-          {(fromDate || toDate) && (
-            <button onClick={() => { setFromDate(""); setToDate(""); }}
-              className="flex items-center gap-1 text-[11px] text-[#8A93A3] hover:text-[#EDF1F5] border border-[#242B34] rounded-[4px] px-2 py-1.5">
-              <X size={11} /> Clear
-            </button>
-          )}
-        </div>
+      <div className="mb-4">
+        <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Reports</div>
+        <div className="text-[12px] text-[#8A93A3]">Each report has its own date range, and can be exported or emailed.</div>
       </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        {metrics.map((m) => (
-          <div key={m.label} className="rounded-[6px] border border-[#242B34] bg-[#161B22] px-4 py-3">
-            <div className="font-mono text-[22px] font-bold text-[#EDF1F5] tabular-nums">{m.value != null ? formatElapsed(m.value) : "—"}</div>
-            <div className="text-[11px] text-[#8A93A3] mt-1 leading-tight">{m.label}</div>
-          </div>
+      <div className="flex items-center gap-1 mb-5 border-b border-[#242B34]">
+        {tabs.map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-3.5 py-2 text-[12.5px] font-medium border-b-2 -mb-px transition-colors ${tab === t.key ? "border-[#4C8CF5] text-[#EDF1F5]" : "border-transparent text-[#8A93A3] hover:text-[#DCE2E8]"}`}>
+            {t.label}
+          </button>
         ))}
       </div>
-
-      <div className="mb-6">
-        <div className="text-[11px] uppercase tracking-wide text-[#6B7686] mb-2">
-          Daily report {!fromDate && !toDate ? "(last 14 days with activity)" : ""}
-        </div>
-        <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
-          <table className="w-full text-[13px] min-w-[620px]">
-            <thead>
-              <tr className="bg-[#161B22] text-[#6B7686] text-[11px] uppercase tracking-wide">
-                <th className="text-left px-4 py-2 font-medium">Date</th>
-                <th className="text-right px-4 py-2 font-medium">Created</th>
-                <th className="text-right px-4 py-2 font-medium">Departed</th>
-                <th className="text-right px-4 py-2 font-medium">Completed</th>
-                <th className="text-right px-4 py-2 font-medium">Refill</th>
-                <th className="text-right px-4 py-2 font-medium">Flagged</th>
-                <th className="text-right px-4 py-2 font-medium">Net wt. moved</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dailyBreakdown.map(([key, d]) => (
-                <tr key={key} className="border-t border-[#242B34]">
-                  <td className="px-4 py-2.5 text-[#DCE2E8] font-mono">{formatDayLabel(key)}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-[#DCE2E8]">{d.created}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-[#DCE2E8]">{d.departed}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-[#3ECF8E]">{d.completed}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-[#B98CF5]">{d.refill}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-[#FF5C5C]">{d.flagged}</td>
-                  <td className="px-4 py-2.5 text-right font-mono text-[#8A93A3]">{d.netWeight.toLocaleString("en-IN")} kg</td>
-                </tr>
-              ))}
-              {dailyBreakdown.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-[#5A6270] text-[13px]">No activity in this range.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <GroupTable title="Vendor-wise activity" description="Trip counts and average wait/turnaround times for each vendor." rows={vendorStats} />
-      <GroupTable title="Transporter-wise activity" description="Trip counts and average wait/turnaround times for each transporter." rows={transporterStats} />
+      {tab === "daily" && <DailyReport vehicles={vehicles} />}
+      {tab === "vendor" && <GroupReport vehicles={vehicles} title="Vendor-wise activity" description="Trip counts and average wait/turnaround times for each vendor." groupKey="vendor" filenamePrefix="yardflow-vendor-report" />}
+      {tab === "transporter" && <GroupReport vehicles={vehicles} title="Transporter-wise activity" description="Trip counts and average wait/turnaround times for each transporter." groupKey="transporter" filenamePrefix="yardflow-transporter-report" />}
     </div>
   );
 }
@@ -1079,7 +1182,21 @@ function Dashboard({ actualRole, profile, onLogout }) {
       setLoading(false);
     }
     load();
-    return () => { active = false; };
+
+    // Realtime keeps things live, but websocket connections can drop
+    // silently (phone screen locks, app backgrounded, flaky network) without
+    // an obvious reconnect. Reconcile with a full refetch periodically and
+    // whenever the app/tab comes back into view, so the dashboard can't
+    // silently go stale in the background.
+    const interval = setInterval(load, 60000);
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   useEffect(() => {
