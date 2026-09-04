@@ -46,11 +46,11 @@ const STATUS_ACTIONS = {
     { role: "Security", label: "Allow Inside", icon: ShieldCheck, type: "advance", next: "Arrived", noFlag: true },
   ],
   Arrived: [
-    { role: "Yard Incharge", label: "Send to Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
-    { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
+    { role: "Yard Supervisor", label: "Send to Yard", icon: Warehouse, type: "assignYard", next: "Yard Assigned" },
+    { role: "Yard Supervisor", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
   ],
   "Yard Assigned": [
-    { role: "Yard Incharge", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
+    { role: "Yard Supervisor", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
   ],
   "First Weighment": [
     { role: "Yard Supervisor", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Unloading" },
@@ -1135,6 +1135,56 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
   );
 }
 
+// Full-lifecycle table — every vehicle regardless of whether this role has a
+// pending action on it right now, unlike RoleQueueView above which only shows
+// what's actionable. Used by roles that need to track a trip start to finish,
+// not just their own turn.
+function FullLifecycleTable({ vehicles, role, title, description, excludeRefill, onSelect, onAdvance, onFlag, onClearFlag }) {
+  const rows = useMemo(
+    () => [...vehicles].filter((v) => !excludeRefill || v.status !== "Refill Pending").sort((a, b) => b.statusAt - a.statusAt),
+    [vehicles, excludeRefill]
+  );
+
+  return (
+    <div>
+      <div className="mb-4">
+        <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">{title}</div>
+        <div className="text-[12px] text-[#8A93A3]">{description}</div>
+      </div>
+      <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
+        <table className="w-full text-[13px] min-w-[700px]">
+          <thead>
+            <tr className="bg-[#161B22] text-[#6B7686] text-[11px] uppercase tracking-wide">
+              <th className="text-left px-4 py-2.5 font-medium">Vehicle</th>
+              <th className="text-left px-4 py-2.5 font-medium">Vendor / Material</th>
+              <th className="text-left px-4 py-2.5 font-medium">Status</th>
+              <th className="text-right px-4 py-2.5 font-medium">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((v) => {
+              const sc = statusColor(v.status);
+              return (
+                <tr key={v.id} onClick={() => onSelect(v)} className="border-t border-[#242B34] hover:bg-[#151A20] cursor-pointer transition-colors">
+                  <td className="px-4 py-2.5 font-mono text-[13px] font-bold text-[#EDF1F5]">{v.vehicleNumber}</td>
+                  <td className="px-4 py-2.5"><div className="text-[#DCE2E8]">{v.vendor}</div><div className="text-[11px] text-[#6B7686]">{v.material}</div></td>
+                  <td className="px-4 py-2.5"><Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill></td>
+                  <td className="px-4 py-2.5 text-right">
+                    <ActionButtons vehicle={v} role={role} onAdvance={onAdvance} onFlag={onFlag} onClearFlag={onClearFlag} compact />
+                  </td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && (
+              <tr><td colSpan={4} className="px-4 py-10 text-center text-[#5A6270] text-[13px]">No vehicles yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main app
 // ---------------------------------------------------------------------------
@@ -1529,39 +1579,19 @@ function Dashboard({ actualRole, profile, onLogout }) {
           view === "history" ? (
             <HistoryView vehicles={vehicles} roleFilter={role} />
           ) : role === "Vendor" ? (
-            <div>
-              <div className="mb-4">
-                <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">Your trips</div>
-                <div className="text-[12px] text-[#8A93A3]">Create a new trip, mark it once it leaves your MTC, or check on one you've already registered. Trucks sent for refill have ended their lifecycle here and may go to a different MTC, so they're not shown.</div>
-              </div>
-              <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
-                <table className="w-full text-[13px] min-w-[700px]">
-                  <thead>
-                    <tr className="bg-[#161B22] text-[#6B7686] text-[11px] uppercase tracking-wide">
-                      <th className="text-left px-4 py-2.5 font-medium">Vehicle</th>
-                      <th className="text-left px-4 py-2.5 font-medium">Vendor / Material</th>
-                      <th className="text-left px-4 py-2.5 font-medium">Status</th>
-                      <th className="text-right px-4 py-2.5 font-medium">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...vehicles].filter((v) => v.status !== "Refill Pending").sort((a, b) => b.statusAt - a.statusAt).map((v) => {
-                      const sc = statusColor(v.status);
-                      return (
-                        <tr key={v.id} onClick={() => setSelectedVehicle(v)} className="border-t border-[#242B34] hover:bg-[#151A20] cursor-pointer transition-colors">
-                          <td className="px-4 py-2.5 font-mono text-[13px] font-bold text-[#EDF1F5]">{v.vehicleNumber}</td>
-                          <td className="px-4 py-2.5"><div className="text-[#DCE2E8]">{v.vendor}</div><div className="text-[11px] text-[#6B7686]">{v.material}</div></td>
-                          <td className="px-4 py-2.5"><Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill></td>
-                          <td className="px-4 py-2.5 text-right">
-                            <ActionButtons vehicle={v} role={role} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag} compact />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <FullLifecycleTable
+              vehicles={vehicles} role={role} excludeRefill
+              title="Your trips"
+              description="Create a new trip, mark it once it leaves your MTC, or check on one you've already registered. Trucks sent for refill have ended their lifecycle here and may go to a different MTC, so they're not shown."
+              onSelect={setSelectedVehicle} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag}
+            />
+          ) : role === "Yard Incharge" ? (
+            <FullLifecycleTable
+              vehicles={vehicles} role={role}
+              title="All trips"
+              description="Every truck from departure to completion, not just the ones waiting on you right now."
+              onSelect={setSelectedVehicle} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag}
+            />
           ) : (
             <RoleQueueView role={role} vehicles={vehicles} now={now} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag} onSelect={setSelectedVehicle} />
           )
