@@ -1430,7 +1430,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
   const isAdmin = role === "Admin";
 
   return (
-    <div className="w-full min-h-[600px] bg-[#0E1116] text-[#EDF1F5]" style={{ fontFamily: "Inter, sans-serif" }}>
+    <div className="w-full min-h-dvh bg-[#0E1116] text-[#EDF1F5]" style={{ fontFamily: "Inter, sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap');
         .font-mono { font-family: 'JetBrains Mono', monospace; }
@@ -1686,7 +1686,7 @@ function LoginScreen({ onSignedIn }) {
   };
 
   return (
-    <div className="w-full min-h-[600px] bg-[#0E1116] text-[#EDF1F5] flex items-center justify-center px-4" style={{ fontFamily: "Inter, sans-serif" }}>
+    <div className="w-full min-h-dvh bg-[#0E1116] text-[#EDF1F5] flex items-center justify-center px-4" style={{ fontFamily: "Inter, sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap');
         .font-mono { font-family: 'JetBrains Mono', monospace; }
@@ -1781,7 +1781,7 @@ export default function App() {
   }, []);
 
   if (authLoading) {
-    return <div className="w-full min-h-[400px] bg-[#0E1116] flex items-center justify-center text-[#5A6270] text-sm">Loading…</div>;
+    return <div className="w-full min-h-dvh bg-[#0E1116] flex items-center justify-center text-[#5A6270] text-sm">Loading…</div>;
   }
 
   if (!session) {
@@ -1790,7 +1790,7 @@ export default function App() {
 
   if (!profile) {
     return (
-      <div className="w-full min-h-[400px] bg-[#0E1116] flex items-center justify-center px-4">
+      <div className="w-full min-h-dvh bg-[#0E1116] flex items-center justify-center px-4">
         <div className="max-w-sm text-center">
           <div className="text-[#F2A93B] text-sm mb-4">{profileError || "Loading your account…"}</div>
           <button onClick={handleLogout} className="rounded-[6px] border border-[#242B34] px-4 py-2 text-sm text-[#8A93A3] hover:text-[#EDF1F5]">Log out</button>

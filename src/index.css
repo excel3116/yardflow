@@ -1,1 +1,9 @@
 @import 'tailwindcss';
+
+/* Match the app's dark background on html/body so any gap below short
+   content (or WebView overscroll on Android) shows dark, not the browser
+   default white, before React has even mounted. */
+html, body, #root {
+  min-height: 100%;
+  background: #0E1116;
+}
