@@ -256,6 +256,7 @@ function AddVehicleModal({ onClose, onCreate }) {
   });
   const [mobileError, setMobileError] = useState("");
   const update = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const updateUpper = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value.toUpperCase() }));
   const submit = (e) => {
     e.preventDefault();
     if (!form.vehicleNumber.trim()) return;
@@ -279,12 +280,12 @@ function AddVehicleModal({ onClose, onCreate }) {
         <div className="space-y-3">
           <div>
             <label className={labelCls}>Vehicle number *</label>
-            <input autoFocus value={form.vehicleNumber} onChange={update("vehicleNumber")} placeholder="MH12AB1234" className={`${inputCls} font-mono`} />
+            <input autoFocus value={form.vehicleNumber} onChange={updateUpper("vehicleNumber")} placeholder="MH12AB1234" className={`${inputCls} font-mono`} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Driver name</label>
-              <input value={form.driver} onChange={update("driver")} placeholder="Ramesh Yadav" className={inputCls} />
+              <input value={form.driver} onChange={updateUpper("driver")} placeholder="Ramesh Yadav" className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>Mobile</label>
@@ -325,11 +326,11 @@ function AddVehicleModal({ onClose, onCreate }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>PO number</label>
-              <input value={form.po} onChange={update("po")} placeholder="PO-48213" className={`${inputCls} font-mono`} />
+              <input value={form.po} onChange={updateUpper("po")} placeholder="PO-48213" className={`${inputCls} font-mono`} />
             </div>
             <div>
               <label className={labelCls}>Invoice no.</label>
-              <input value={form.invoiceNo} onChange={update("invoiceNo")} placeholder="INV-90214" className={`${inputCls} font-mono`} />
+              <input value={form.invoiceNo} onChange={updateUpper("invoiceNo")} placeholder="INV-90214" className={`${inputCls} font-mono`} />
             </div>
           </div>
           <div>
