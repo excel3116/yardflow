@@ -24,7 +24,7 @@ const MATERIALS = ["Copper", "Stainless Steel", "Scrap", "Aluminium", "CRC"];
 // Only Nanekarwadi is live for now — re-add the others here when ready.
 const DESTINATIONS = ["MTC Nanekarwadi"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
-const SUPERVISORS = ["Ramesh Patil", "Suresh More", "Anil Deshmukh", "Vijay Kulkarni"];
+const SUPERVISORS = ["Supervisor 1", "Supervisor 2"];
 
 // Lifecycle: Expected -> Departed -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> (Idle) -> Exited -> Completed | Refill Pending
 const WAITING_STAGES = ["Expected", "Departed", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
