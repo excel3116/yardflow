@@ -30,7 +30,7 @@ const SUPERVISORS = ["Ramesh Patil", "Suresh More", "Anil Deshmukh", "Vijay Kulk
 const WAITING_STAGES = ["Expected", "Departed", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
-// type: "advance" (simple move to next status), "assignYard", "assignSupervisor", "pickYard", "secondWeigh", "exitApprove", "gateApprove", "idle", "finalize"
+// type: "advance" (simple move to next status), "assignYard", "assignSupervisor", "pickYard", "completeFirstWeigh", "secondWeigh", "exitApprove", "gateApprove", "idle", "finalize"
 // requiresFlag: action isn't offered until vehicle[requiresFlag] is already true (e.g. Approve Entry waits for Security's Report)
 const STATUS_ACTIONS = {
   Expected: [
@@ -53,10 +53,11 @@ const STATUS_ACTIONS = {
     { role: "Yard Supervisor", label: "Send for First Weighment", icon: Scale, type: "advance", next: "First Weighment" },
   ],
   "First Weighment": [
-    { role: "Yard Supervisor", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Unloading" },
+    { role: "Weighbridge Operator", label: "Complete First Weighment", icon: Scale, type: "completeFirstWeigh", approverKey: "firstWeighmentDone" },
+    { role: "Yard Supervisor", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Unloading", requiresFlag: "firstWeighmentDone" },
   ],
   Unloading: [
-    { role: "Weighbridge Operator", label: "Take Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded" },
+    { role: "Weighbridge Operator", label: "Complete Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded" },
   ],
   Unloaded: [
     { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
@@ -83,6 +84,13 @@ function actionsFor(vehicle, role) {
     if (a.requiresFlag && !vehicle[a.requiresFlag]) return false; // not offered until the prerequisite flag is set
     return true;
   });
+}
+
+// Security has reported but Yard Incharge hasn't approved entry yet — the
+// truck should stay visible with a preview of "Allow Inside" rather than
+// disappear from Security's queue until then.
+function isAwaitingAllowInside(vehicle, role) {
+  return (role === "Security" || role === "Admin") && vehicle.status === "Departed" && vehicle.securityReported && !vehicle.yardEntryApproved;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +163,7 @@ function rowToVehicle(row) {
     assignedSupervisor: row.assigned_supervisor || null,
     securityReported: row.security_reported || false,
     yardEntryApproved: row.yard_entry_approved || false,
+    firstWeighmentDone: row.first_weighment_done || false,
     partyNetWeight: row.party_net_weight,
     grossWeight: row.gross_weight,
     tareWeight: row.tare_weight,
@@ -233,11 +242,12 @@ function StatCard({ card, count, active, onClick }) {
 const DASHBOARD_CARDS = [
   { key: "Expected", label: "Awaiting departure (MTC)", icon: Clock, filter: (v) => v.status === "Expected", pulse: true },
   { key: "DepartedWait", label: "Awaiting gate approval", icon: Truck, filter: (v) => v.status === "Departed", pulse: true },
-  { key: "Inside", label: "Inside plant", icon: Truck, filter: (v) => !["Expected", "Departed", "Completed", "Refill Pending"].includes(v.status) },
+  { key: "Inside", label: "Inside plant", icon: Truck, filter: (v) => !["Expected", "Departed", "Approved for Entry", "Completed", "Refill Pending"].includes(v.status) },
   { key: "AllowWait", label: "Awaiting security allow-in", icon: ShieldCheck, filter: (v) => v.status === "Approved for Entry", pulse: true },
-  { key: "YardWait", label: "Awaiting yard / first weighment", icon: Warehouse, filter: (v) => v.status === "Arrived" },
+  { key: "YardWait", label: "Awaiting yard", icon: Warehouse, filter: (v) => v.status === "Arrived" },
   { key: "FirstWeighWait", label: "Awaiting first weighment", icon: Scale, filter: (v) => v.status === "Yard Assigned", pulse: true },
-  { key: "UnloadWait", label: "Awaiting unloading", icon: PackageCheck, filter: (v) => v.status === "First Weighment", pulse: true },
+  { key: "FirstWeighInProgress", label: "First weighment in progress", icon: Scale, filter: (v) => v.status === "First Weighment" && !v.firstWeighmentDone, pulse: true },
+  { key: "UnloadWait", label: "Awaiting unloading", icon: PackageCheck, filter: (v) => v.status === "First Weighment" && v.firstWeighmentDone, pulse: true },
   { key: "Unloading", label: "Awaiting second weighment", icon: Scale, filter: (v) => v.status === "Unloading", pulse: true },
   { key: "WeighmentDone", label: "Weighment finished", icon: Scale, filter: (v) => v.netWeight != null },
   { key: "WeighmentOverdue", label: "Weighment overdue (>1h)", icon: AlertTriangle, filter: (v, now) => isWeighmentOverdue(v, now), pulse: true },
@@ -518,10 +528,17 @@ function ExitApprovalRow({ vehicle }) {
 function ActionButtons({ vehicle, role, onAdvance, onFlag, onClearFlag, compact }) {
   const actions = actionsFor(vehicle, role);
   const flagAllowed = actions.length > 0 && !actions.every((a) => a.noFlag);
-  if (actions.length === 0 && !vehicle.flagged) return compact ? <span className="text-[11px] text-[#5A6270]">No action pending</span> : null;
+  const awaitingAllowInside = isAwaitingAllowInside(vehicle, role);
+  if (actions.length === 0 && !vehicle.flagged && !awaitingAllowInside) return compact ? <span className="text-[11px] text-[#5A6270]">No action pending</span> : null;
 
   return (
     <div className={`flex items-center gap-1.5 flex-wrap ${compact ? "justify-end" : ""}`}>
+      {awaitingAllowInside && (
+        <button disabled title="Waiting for Yard Incharge to approve entry first"
+          className="inline-flex items-center gap-1 rounded-[4px] border border-[#2A323D] bg-[#181D24] px-2.5 py-1.5 text-[12px] font-medium text-[#5A6270] cursor-not-allowed">
+          <ShieldCheck size={12} />Allow Inside
+        </button>
+      )}
       {actions.map((a, i) => (
         <button key={i} onClick={(e) => { e.stopPropagation(); if (a.type === "qcFlag") onFlag(vehicle); else onAdvance(vehicle, a); }}
           className={`inline-flex items-center gap-1 rounded-[4px] border px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
@@ -969,6 +986,7 @@ const ACTION_LABELS = {
   Arrived: "Allowed inside",
   "Yard Assigned": "Assigned yard",
   "First Weighment": "First weighment recorded",
+  "First Weighment Completed": "Weighbridge confirmed first weighment",
   Unloading: "Sent for unloading",
   Unloaded: "Second weighment recorded",
   Idle: "Marked idle",
@@ -1077,10 +1095,13 @@ function isIncomingForSupervisor(v, role) {
 
 function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, onSelect }) {
   const actionable = useMemo(() => vehicles.filter((v) => actionsFor(v, role).length > 0), [vehicles, role]);
-  const incoming = useMemo(() => vehicles.filter((v) => isIncomingForSupervisor(v, role)), [vehicles, role]);
+  const extra = useMemo(
+    () => vehicles.filter((v) => isIncomingForSupervisor(v, role) || isAwaitingAllowInside(v, role)),
+    [vehicles, role]
+  );
   const relevant = useMemo(
-    () => [...actionable, ...incoming].sort((a, b) => a.statusAt - b.statusAt),
-    [actionable, incoming]
+    () => [...actionable, ...extra].sort((a, b) => a.statusAt - b.statusAt),
+    [actionable, extra]
   );
 
   return (
@@ -1088,8 +1109,8 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
       <div className="mb-4">
         <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">{role} queue</div>
         <div className="text-[12px] text-[#8A93A3]">
-          {incoming.length > 0
-            ? `${actionable.length} waiting on you right now, ${incoming.length} on the way`
+          {extra.length > 0
+            ? `${actionable.length} waiting on you right now, ${extra.length} coming up next`
             : `${relevant.length} vehicle${relevant.length === 1 ? "" : "s"} waiting on you right now`}
         </div>
       </div>
@@ -1352,6 +1373,8 @@ function Dashboard({ actualRole, profile, onLogout }) {
 
     if (action.type === "advance") {
       update = { status: action.next, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
+    } else if (action.type === "completeFirstWeigh") {
+      update = { first_weighment_done: true, history: [...(vehicle.history || []), { status: "First Weighment Completed", at, role: actor, outcome: "approved" }] };
     } else if (action.type === "assignYard") {
       const yard = vehicle.yard || YARDS[randomBetween(0, YARDS.length - 1)];
       update = { status: action.next, status_at: new Date(at).toISOString(), yard, history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
@@ -1601,7 +1624,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
               description="Create a new trip, mark it once it leaves your MTC, or check on one you've already registered. Trucks sent for refill have ended their lifecycle here and may go to a different MTC, so they're not shown."
               onSelect={setSelectedVehicle} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag}
             />
-          ) : role === "Yard Incharge" ? (
+          ) : role === "Yard Incharge" || role === "QC" ? (
             <FullLifecycleTable
               vehicles={vehicles} role={role}
               title="All trips"
