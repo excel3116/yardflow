@@ -1071,17 +1071,27 @@ function HistoryView({ vehicles, roleFilter }) {
   );
 }
 
+function isIncomingForSupervisor(v, role) {
+  return role === "Yard Supervisor" && v.assignedSupervisor && ["Departed", "Approved for Entry"].includes(v.status) && actionsFor(v, role).length === 0;
+}
+
 function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, onSelect }) {
+  const actionable = useMemo(() => vehicles.filter((v) => actionsFor(v, role).length > 0), [vehicles, role]);
+  const incoming = useMemo(() => vehicles.filter((v) => isIncomingForSupervisor(v, role)), [vehicles, role]);
   const relevant = useMemo(
-    () => vehicles.filter((v) => actionsFor(v, role).length > 0).sort((a, b) => a.statusAt - b.statusAt),
-    [vehicles, role]
+    () => [...actionable, ...incoming].sort((a, b) => a.statusAt - b.statusAt),
+    [actionable, incoming]
   );
 
   return (
     <div>
       <div className="mb-4">
         <div className="font-[Barlow_Condensed] text-[22px] font-bold text-[#EDF1F5] tracking-wide">{role} queue</div>
-        <div className="text-[12px] text-[#8A93A3]">{relevant.length} vehicle{relevant.length === 1 ? "" : "s"} waiting on you right now</div>
+        <div className="text-[12px] text-[#8A93A3]">
+          {incoming.length > 0
+            ? `${actionable.length} waiting on you right now, ${incoming.length} on the way`
+            : `${relevant.length} vehicle${relevant.length === 1 ? "" : "s"} waiting on you right now`}
+        </div>
       </div>
       <div className="rounded-[6px] border border-[#242B34] overflow-hidden overflow-x-auto">
         <table className="w-full text-[13px] min-w-[700px]">
@@ -1099,6 +1109,7 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
               const elapsed = now - v.statusAt;
               const overdue = WAITING_STAGES.includes(v.status) && elapsed > 60 * 60 * 1000;
               const sc = statusColor(v.status);
+              const incomingRow = isIncomingForSupervisor(v, role);
               return (
                 <tr key={v.id} onClick={() => onSelect(v)} className="border-t border-[#242B34] hover:bg-[#151A20] cursor-pointer transition-colors">
                   <td className="px-4 py-2.5">
@@ -1110,7 +1121,7 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{v.status}</Pill>
+                      <Pill fg={sc.fg} bg={sc.bg} bd={sc.bd}>{incomingRow ? "Arriving" : v.status}</Pill>
                       {v.flagged && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Flagged</Pill>}
                       {isWeighmentOverdue(v, now) && <Pill fg="#FF5C5C" bg="#2A1515" bd="#4A1E1E">Weighment &gt;1h</Pill>}
                     </div>
@@ -1121,7 +1132,11 @@ function RoleQueueView({ role, vehicles, now, onAdvance, onFlag, onClearFlag, on
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <ActionButtons vehicle={v} role={role} onAdvance={onAdvance} onFlag={onFlag} onClearFlag={onClearFlag} compact />
+                    {incomingRow ? (
+                      <span className="text-[11px] text-[#5A6270] italic">Not yet arrived</span>
+                    ) : (
+                      <ActionButtons vehicle={v} role={role} onAdvance={onAdvance} onFlag={onFlag} onClearFlag={onClearFlag} compact />
+                    )}
                   </td>
                 </tr>
               );
