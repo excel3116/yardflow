@@ -40,7 +40,7 @@ const STATUS_ACTIONS = {
     { role: "Security", label: "Report", icon: ShieldCheck, type: "gateApprove", approverKey: "securityReported", approverLabel: "Security", next: "Approved for Entry" },
     { role: "Yard Incharge", label: "Assign Supervisor", icon: Warehouse, type: "assignSupervisor", approverKey: "assignedSupervisor" },
     { role: "Yard Incharge", label: "Assign Yard", icon: Warehouse, type: "pickYard", approverKey: "yard" },
-    { role: "Yard Incharge", label: "Approve Entry", icon: Warehouse, type: "gateApprove", approverKey: "yardEntryApproved", approverLabel: "Yard Incharge", next: "Approved for Entry", requiresFlag: "securityReported" },
+    { role: "Yard Supervisor", label: "Approve Entry", icon: Warehouse, type: "gateApprove", approverKey: "yardEntryApproved", approverLabel: "Yard Supervisor", next: "Approved for Entry", requiresFlag: "securityReported" },
   ],
   "Approved for Entry": [
     { role: "Security", label: "Allow Inside", icon: ShieldCheck, type: "advance", next: "Arrived", noFlag: true },
@@ -254,7 +254,7 @@ const DASHBOARD_CARDS = [
   { key: "ExitWait", label: "Awaiting exit approval", icon: LogOut, filter: (v) => v.status === "Unloaded", pulse: true },
   { key: "IdleWait", label: "Idle in yard", icon: CircleDot, filter: (v) => v.status === "Idle", pulse: true },
   { key: "QCPending", label: "Awaiting QC decision", icon: ClipboardList, filter: (v) => v.status === "Exited" },
-  { key: "Completed", label: "Completed today", icon: CheckCircle2, filter: (v) => v.status === "Completed" },
+  { key: "Completed", label: "Completed today", icon: CheckCircle2, filter: (v, now) => v.status === "Completed" && new Date(v.statusAt).toDateString() === new Date(now).toDateString() },
   { key: "Refill", label: "Refill pending", icon: RotateCcw, filter: (v) => v.status === "Refill Pending" },
   { key: "Delayed", label: "Flagged / delayed", icon: AlertTriangle, filter: (v) => v.flagged && !["Completed", "Refill Pending"].includes(v.status) },
 ];
