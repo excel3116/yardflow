@@ -147,6 +147,7 @@ function statusColor(status) {
 function rowToVehicle(row) {
   return {
     id: row.id,
+    createdBy: row.created_by || null,
     vehicleNumber: row.vehicle_number,
     driver: row.driver,
     mobile: row.mobile,
@@ -1319,6 +1320,19 @@ function Dashboard({ actualRole, profile, onLogout }) {
     return [...list].sort((a, b) => b.statusAt - a.statusAt);
   }, [vehicles, filterKey, search, now]);
 
+  // Per-account visibility — a real login's own identity (full_name), not
+  // the role being previewed, so Admin previewing a role still sees
+  // everything rather than an empty list.
+  const myIdentity = profile.full_name || profile.email || null;
+  const vendorVehicles = useMemo(
+    () => (actualRole === "Vendor" ? vehicles.filter((v) => v.createdBy === myIdentity) : vehicles),
+    [vehicles, actualRole, myIdentity]
+  );
+  const supervisorVehicles = useMemo(
+    () => (actualRole === "Yard Supervisor" ? vehicles.filter((v) => v.assignedSupervisor === myIdentity) : vehicles),
+    [vehicles, actualRole, myIdentity]
+  );
+
   const handleCreate = useCallback(async (form) => {
     const at = Date.now();
     const row = {
@@ -1335,6 +1349,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
       status: "Expected",
       status_at: new Date(at).toISOString(),
       history: [{ status: "Expected", at, role, outcome: "approved" }],
+      created_by: profile.full_name || profile.email || null,
     };
     const { data, error } = await supabase.from("vehicles").insert(row).select();
     if (error) {
@@ -1343,7 +1358,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
       setVehicles((vs) => (vs.some((v) => v.id === data[0].id) ? vs : [rowToVehicle(data[0]), ...vs]));
     }
     setShowAddModal(false);
-  }, [role]);
+  }, [role, profile]);
 
   const handleAdvance = useCallback(async (vehicle, action) => {
     if (action.type === "secondWeigh") {
@@ -1619,9 +1634,9 @@ function Dashboard({ actualRole, profile, onLogout }) {
             <HistoryView vehicles={vehicles} roleFilter={role} />
           ) : role === "Vendor" ? (
             <FullLifecycleTable
-              vehicles={vehicles} role={role} excludeRefill
+              vehicles={vendorVehicles} role={role} excludeRefill
               title="Your trips"
-              description="Create a new trip, mark it once it leaves your MTC, or check on one you've already registered. Trucks sent for refill have ended their lifecycle here and may go to a different MTC, so they're not shown."
+              description="Create a new trip, mark it once it leaves your MTC, or check on one you've already registered. Only trips you created are shown here. Trucks sent for refill have ended their lifecycle here and may go to a different MTC, so they're not shown."
               onSelect={setSelectedVehicle} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag}
             />
           ) : role === "Yard Incharge" || role === "QC" ? (
@@ -1632,7 +1647,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
               onSelect={setSelectedVehicle} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag}
             />
           ) : (
-            <RoleQueueView role={role} vehicles={vehicles} now={now} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag} onSelect={setSelectedVehicle} />
+            <RoleQueueView role={role} vehicles={role === "Yard Supervisor" ? supervisorVehicles : vehicles} now={now} onAdvance={handleAdvance} onFlag={handleFlag} onClearFlag={handleClearFlag} onSelect={setSelectedVehicle} />
           )
         ) : view === "history" ? (
           <HistoryView vehicles={vehicles} roleFilter={null} />
