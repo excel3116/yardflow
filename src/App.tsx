@@ -34,7 +34,7 @@ const CLEAR_ALL_PASSWORD = "yardflow-reset";
 const WAITING_STAGES = ["Expected", "Departed", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
-// type: "advance" (simple move to next status), "assignYard", "assignSupervisor", "pickYard", "completeFirstWeigh", "secondWeigh", "exitApprove", "gateApprove", "idle", "finalize"
+// type: "advance" (simple move to next status), "assignYard", "assignSupervisor", "pickYard", "completeFirstWeigh", "completeUnloading", "secondWeigh", "exitApprove", "gateApprove", "idle", "finalize"
 // requiresFlag: action isn't offered until vehicle[requiresFlag] is already true (e.g. Approve Entry waits for Security's Report)
 const STATUS_ACTIONS = {
   Expected: [
@@ -61,7 +61,8 @@ const STATUS_ACTIONS = {
     { role: "Yard Supervisor", label: "Send for Unloading", icon: PackageCheck, type: "advance", next: "Unloading", requiresFlag: "firstWeighmentDone" },
   ],
   Unloading: [
-    { role: "Weighbridge Operator", label: "Complete Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded" },
+    { role: "Yard Supervisor", label: "Complete Unloading", icon: PackageCheck, type: "completeUnloading", approverKey: "unloadingDone" },
+    { role: "Weighbridge Operator", label: "Complete Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded", requiresFlag: "unloadingDone" },
   ],
   Unloaded: [
     { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
@@ -169,6 +170,7 @@ function rowToVehicle(row) {
     securityReported: row.security_reported || false,
     yardEntryApproved: row.yard_entry_approved || false,
     firstWeighmentDone: row.first_weighment_done || false,
+    unloadingDone: row.unloading_done || false,
     partyNetWeight: row.party_net_weight,
     grossWeight: row.gross_weight,
     tareWeight: row.tare_weight,
@@ -253,7 +255,8 @@ const DASHBOARD_CARDS = [
   { key: "FirstWeighWait", label: "Awaiting first weighment", icon: Scale, filter: (v) => v.status === "Yard Assigned", pulse: true },
   { key: "FirstWeighInProgress", label: "First weighment in progress", icon: Scale, filter: (v) => v.status === "First Weighment" && !v.firstWeighmentDone, pulse: true },
   { key: "UnloadWait", label: "Awaiting unloading", icon: PackageCheck, filter: (v) => v.status === "First Weighment" && v.firstWeighmentDone, pulse: true },
-  { key: "Unloading", label: "Awaiting second weighment", icon: Scale, filter: (v) => v.status === "Unloading", pulse: true },
+  { key: "UnloadingInProgress", label: "Unloading in progress", icon: PackageCheck, filter: (v) => v.status === "Unloading" && !v.unloadingDone, pulse: true },
+  { key: "Unloading", label: "Awaiting second weighment", icon: Scale, filter: (v) => v.status === "Unloading" && v.unloadingDone, pulse: true },
   { key: "WeighmentDone", label: "Weighment finished", icon: Scale, filter: (v) => v.netWeight != null },
   { key: "WeighmentOverdue", label: "Weighment overdue (>1h)", icon: AlertTriangle, filter: (v, now) => isWeighmentOverdue(v, now), pulse: true },
   { key: "ExitWait", label: "Awaiting exit approval", icon: LogOut, filter: (v) => v.status === "Unloaded", pulse: true },
@@ -993,6 +996,7 @@ const ACTION_LABELS = {
   "First Weighment": "First weighment recorded",
   "First Weighment Completed": "Weighbridge confirmed first weighment",
   Unloading: "Sent for unloading",
+  "Unloading Completed": "Supervisor confirmed unloading",
   Unloaded: "Second weighment recorded",
   Idle: "Marked idle",
   "Gate Approval": "Approved gate entry",
@@ -1394,6 +1398,8 @@ function Dashboard({ actualRole, profile, onLogout }) {
       update = { status: action.next, status_at: new Date(at).toISOString(), history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
     } else if (action.type === "completeFirstWeigh") {
       update = { first_weighment_done: true, history: [...(vehicle.history || []), { status: "First Weighment Completed", at, role: actor, outcome: "approved" }] };
+    } else if (action.type === "completeUnloading") {
+      update = { unloading_done: true, history: [...(vehicle.history || []), { status: "Unloading Completed", at, role: actor, outcome: "approved" }] };
     } else if (action.type === "assignYard") {
       const yard = vehicle.yard || YARDS[randomBetween(0, YARDS.length - 1)];
       update = { status: action.next, status_at: new Date(at).toISOString(), yard, history: [...(vehicle.history || []), { status: action.next, at, role: actor, outcome: "approved" }], flagged: false, flag_reason: null, flagged_at: null };
