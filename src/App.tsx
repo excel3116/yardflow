@@ -26,6 +26,10 @@ const DESTINATIONS = ["MTC Nanekarwadi"];
 const YARDS = ["Yard A - Slot 1", "Yard A - Slot 2", "Yard B - Slot 5", "Yard B - Slot 6", "Yard C - Slot 3"];
 const SUPERVISORS = ["Supervisor 1", "Supervisor 2"];
 
+// Not real security (visible in the shipped JS, same as anything else client-side) —
+// just a guard against an accidental click on a destructive, irreversible action.
+const CLEAR_ALL_PASSWORD = "yardflow-reset";
+
 // Lifecycle: Expected -> Departed -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> (Idle) -> Exited -> Completed | Refill Pending
 const WAITING_STAGES = ["Expected", "Departed", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
 
@@ -1274,7 +1278,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
     // an obvious reconnect. Reconcile with a full refetch periodically and
     // whenever the app/tab comes back into view, so the dashboard can't
     // silently go stale in the background.
-    const interval = setInterval(load, 60000);
+    const interval = setInterval(load, 5000);
     const onVisible = () => { if (document.visibilityState === "visible") load(); };
     document.addEventListener("visibilitychange", onVisible);
 
@@ -1521,6 +1525,12 @@ function Dashboard({ actualRole, profile, onLogout }) {
   }, [role]);
 
   const handleClearAll = useCallback(async () => {
+    const input = window.prompt("Enter the admin password to clear all vehicles:");
+    if (input === null) return;
+    if (input !== CLEAR_ALL_PASSWORD) {
+      window.alert("Incorrect password.");
+      return;
+    }
     if (!window.confirm("Delete every vehicle currently in the system? This cannot be undone.")) return;
     setResetting(true);
     const { data: existing } = await supabase.from("vehicles").select("id");
