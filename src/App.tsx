@@ -1631,7 +1631,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
           <div className="text-center py-20 text-[#5A6270] text-sm">Loading vehicles from database…</div>
         ) : !isAdmin ? (
           view === "history" ? (
-            <HistoryView vehicles={vehicles} roleFilter={role} />
+            <HistoryView vehicles={role === "Vendor" ? vendorVehicles : role === "Yard Supervisor" ? supervisorVehicles : vehicles} roleFilter={role} />
           ) : role === "Vendor" ? (
             <FullLifecycleTable
               vehicles={vendorVehicles} role={role} excludeRefill
