@@ -10,7 +10,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { supabase } from "./supabaseClient";
-import { initPushNotifications } from "./push";
+import { initPushNotifications, setPushUser } from "./push";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1856,11 +1856,13 @@ export default function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      setPushUser(data.session?.user?.id ?? null);
       loadProfile(data.session).finally(() => setAuthLoading(false));
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
+      setPushUser(newSession?.user?.id ?? null);
       loadProfile(newSession);
     });
 
@@ -1869,6 +1871,7 @@ export default function App() {
 
   const handleSignedIn = useCallback((newSession) => {
     setSession(newSession);
+    setPushUser(newSession?.user?.id ?? null);
     loadProfile(newSession);
   }, [loadProfile]);
 
@@ -1876,6 +1879,7 @@ export default function App() {
     await supabase.auth.signOut();
     setSession(null);
     setProfile(null);
+    setPushUser(null);
   }, []);
 
   if (authLoading) {
