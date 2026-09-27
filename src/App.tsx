@@ -31,7 +31,7 @@ const SUPERVISORS = ["Supervisor 1", "Supervisor 2"];
 const CLEAR_ALL_PASSWORD = "yardflow-reset";
 
 // Lifecycle: Expected -> Departed -> Arrived -> (Yard Assigned) -> First Weighment -> Unloading -> Unloaded -> (Idle) -> Exited -> Completed | Refill Pending
-const WAITING_STAGES = ["Expected", "Departed", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Unloaded", "Idle", "Exited"];
+const WAITING_STAGES = ["Expected", "Departed", "Approved for Entry", "Arrived", "Yard Assigned", "First Weighment", "Unloading", "Second Weighment", "Unloaded", "Idle", "Exited"];
 
 // Which role(s) can act on a vehicle at each status, and what that action does.
 // type: "advance" (simple move to next status), "assignYard", "assignSupervisor", "pickYard", "completeFirstWeigh", "completeUnloading", "secondWeigh", "exitApprove", "gateApprove", "idle", "finalize"
@@ -62,7 +62,10 @@ const STATUS_ACTIONS = {
   ],
   Unloading: [
     { role: "Yard Supervisor", label: "Complete Unloading", icon: PackageCheck, type: "completeUnloading", approverKey: "unloadingDone" },
-    { role: "Weighbridge Operator", label: "Complete Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded", requiresFlag: "unloadingDone" },
+    { role: "Yard Supervisor", label: "Send for Second Weighment", icon: Scale, type: "advance", next: "Second Weighment", requiresFlag: "unloadingDone" },
+  ],
+  "Second Weighment": [
+    { role: "Weighbridge Operator", label: "Complete Second Weighment", icon: Scale, type: "secondWeigh", next: "Unloaded" },
   ],
   Unloaded: [
     { role: "Security", label: "Approve Exit", icon: LogOut, type: "exitApprove", approverKey: "securityExitApproved", approverLabel: "Security" },
@@ -257,6 +260,7 @@ const DASHBOARD_CARDS = [
   { key: "UnloadWait", label: "Awaiting unloading", icon: PackageCheck, filter: (v) => v.status === "First Weighment" && v.firstWeighmentDone, pulse: true },
   { key: "UnloadingInProgress", label: "Unloading in progress", icon: PackageCheck, filter: (v) => v.status === "Unloading" && !v.unloadingDone, pulse: true },
   { key: "Unloading", label: "Awaiting second weighment", icon: Scale, filter: (v) => v.status === "Unloading" && v.unloadingDone, pulse: true },
+  { key: "SecondWeighInProgress", label: "Second weighment in progress", icon: Scale, filter: (v) => v.status === "Second Weighment", pulse: true },
   { key: "WeighmentDone", label: "Weighment finished", icon: Scale, filter: (v) => v.netWeight != null },
   { key: "WeighmentOverdue", label: "Weighment overdue (>1h)", icon: AlertTriangle, filter: (v, now) => isWeighmentOverdue(v, now), pulse: true },
   { key: "ExitWait", label: "Awaiting exit approval", icon: LogOut, filter: (v) => v.status === "Unloaded", pulse: true },
@@ -1053,6 +1057,7 @@ const ACTION_LABELS = {
   "First Weighment Completed": "Weighbridge confirmed first weighment",
   Unloading: "Sent for unloading",
   "Unloading Completed": "Supervisor confirmed unloading",
+  "Second Weighment": "Sent for second weighment",
   Unloaded: "Second weighment recorded",
   Idle: "Marked idle",
   "Gate Approval": "Approved gate entry",
