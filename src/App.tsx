@@ -267,9 +267,81 @@ const DASHBOARD_CARDS = [
   { key: "Delayed", label: "Flagged / delayed", icon: AlertTriangle, filter: (v) => v.flagged && !["Completed", "Refill Pending"].includes(v.status) },
 ];
 
+const vehicleInputCls = "w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] text-sm focus:outline-none focus:border-[#4C8CF5]";
+const vehicleLabelCls = "block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1";
+
+function VehicleFormFields({ form, setForm, update, updateUpper, mobileError, setMobileError }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className={vehicleLabelCls}>Vehicle number *</label>
+        <input autoFocus required value={form.vehicleNumber} onChange={updateUpper("vehicleNumber")} placeholder="MH12AB1234" className={`${vehicleInputCls} font-mono`} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={vehicleLabelCls}>Driver name</label>
+          <input value={form.driver} onChange={updateUpper("driver")} placeholder="Ramesh Yadav" className={vehicleInputCls} />
+        </div>
+        <div>
+          <label className={vehicleLabelCls}>Mobile</label>
+          <input value={form.mobile} inputMode="numeric" maxLength={10}
+            onChange={(e) => { setForm((f) => ({ ...f, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) })); setMobileError(""); }}
+            placeholder="9812345678" className={`${vehicleInputCls} font-mono`} />
+          {mobileError && <div className="text-[11px] text-[#FF5C5C] mt-1">{mobileError}</div>}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={vehicleLabelCls}>Vendor *</label>
+          <select required value={form.vendor} onChange={update("vendor")} className={vehicleInputCls}>
+            <option value="" disabled>Select vendor</option>
+            {VENDORS.map((v) => <option key={v}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={vehicleLabelCls}>Transporter *</label>
+          <select required value={form.transporter} onChange={update("transporter")} className={vehicleInputCls}>
+            <option value="" disabled>Select transporter</option>
+            {TRANSPORTERS.map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={vehicleLabelCls}>Material</label>
+          <select value={form.material} onChange={update("material")} className={vehicleInputCls}>
+            {MATERIALS.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={vehicleLabelCls}>Destination</label>
+          <select value={form.destination} onChange={update("destination")} className={vehicleInputCls}>
+            {DESTINATIONS.map((d) => <option key={d}>{d}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={vehicleLabelCls}>PO number</label>
+          <input value={form.po} onChange={updateUpper("po")} placeholder="PO-48213" className={`${vehicleInputCls} font-mono`} />
+        </div>
+        <div>
+          <label className={vehicleLabelCls}>Invoice no.</label>
+          <input value={form.invoiceNo} onChange={updateUpper("invoiceNo")} placeholder="INV-90214" className={`${vehicleInputCls} font-mono`} />
+        </div>
+      </div>
+      <div>
+        <label className={vehicleLabelCls}>Party net weight (kg)</label>
+        <input type="number" value={form.partyNetWeight} onChange={update("partyNetWeight")} placeholder="As per party's invoice" className={`${vehicleInputCls} font-mono`} />
+        <div className="text-[10px] text-[#5A6270] mt-1">Declared weight from the vendor's own paperwork — compared later against our measured weight.</div>
+      </div>
+    </div>
+  );
+}
+
 function AddVehicleModal({ onClose, onCreate }) {
   const [form, setForm] = useState({
-    vehicleNumber: "", driver: "", mobile: "", vendor: VENDORS[0], transporter: TRANSPORTERS[0],
+    vehicleNumber: "", driver: "", mobile: "", vendor: "", transporter: "",
     material: MATERIALS[0], po: "", invoiceNo: "", destination: DESTINATIONS[0], partyNetWeight: "",
   });
   const [mobileError, setMobileError] = useState("");
@@ -277,7 +349,6 @@ function AddVehicleModal({ onClose, onCreate }) {
   const updateUpper = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value.toUpperCase() }));
   const submit = (e) => {
     e.preventDefault();
-    if (!form.vehicleNumber.trim()) return;
     if (form.mobile && !/^\d{10}$/.test(form.mobile)) {
       setMobileError("Mobile number must be exactly 10 digits.");
       return;
@@ -285,8 +356,6 @@ function AddVehicleModal({ onClose, onCreate }) {
     setMobileError("");
     onCreate(form);
   };
-  const inputCls = "w-full rounded-[4px] bg-[#1C222A] border border-[#2A323D] px-3 py-2 text-[#EDF1F5] text-sm focus:outline-none focus:border-[#4C8CF5]";
-  const labelCls = "block text-[11px] uppercase tracking-wide text-[#6B7686] mb-1";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 overflow-y-auto">
@@ -295,71 +364,53 @@ function AddVehicleModal({ onClose, onCreate }) {
           <h3 className="font-[Barlow_Condensed] text-[20px] font-bold text-[#EDF1F5] tracking-wide">New vehicle entry</h3>
           <button type="button" onClick={onClose} className="text-[#6B7686] hover:text-[#EDF1F5]"><X size={18} /></button>
         </div>
-        <div className="space-y-3">
-          <div>
-            <label className={labelCls}>Vehicle number *</label>
-            <input autoFocus value={form.vehicleNumber} onChange={updateUpper("vehicleNumber")} placeholder="MH12AB1234" className={`${inputCls} font-mono`} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Driver name</label>
-              <input value={form.driver} onChange={updateUpper("driver")} placeholder="Ramesh Yadav" className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Mobile</label>
-              <input value={form.mobile} inputMode="numeric" maxLength={10}
-                onChange={(e) => { setForm((f) => ({ ...f, mobile: e.target.value.replace(/\D/g, "").slice(0, 10) })); setMobileError(""); }}
-                placeholder="9812345678" className={`${inputCls} font-mono`} />
-              {mobileError && <div className="text-[11px] text-[#FF5C5C] mt-1">{mobileError}</div>}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Vendor</label>
-              <select value={form.vendor} onChange={update("vendor")} className={inputCls}>
-                {VENDORS.map((v) => <option key={v}>{v}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Transporter</label>
-              <select value={form.transporter} onChange={update("transporter")} className={inputCls}>
-                {TRANSPORTERS.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Material</label>
-              <select value={form.material} onChange={update("material")} className={inputCls}>
-                {MATERIALS.map((m) => <option key={m}>{m}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Destination</label>
-              <select value={form.destination} onChange={update("destination")} className={inputCls}>
-                {DESTINATIONS.map((d) => <option key={d}>{d}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>PO number</label>
-              <input value={form.po} onChange={updateUpper("po")} placeholder="PO-48213" className={`${inputCls} font-mono`} />
-            </div>
-            <div>
-              <label className={labelCls}>Invoice no.</label>
-              <input value={form.invoiceNo} onChange={updateUpper("invoiceNo")} placeholder="INV-90214" className={`${inputCls} font-mono`} />
-            </div>
-          </div>
-          <div>
-            <label className={labelCls}>Party net weight (kg)</label>
-            <input type="number" value={form.partyNetWeight} onChange={update("partyNetWeight")} placeholder="As per party's invoice" className={`${inputCls} font-mono`} />
-            <div className="text-[10px] text-[#5A6270] mt-1">Declared weight from the vendor's own paperwork — compared later against our measured weight.</div>
-          </div>
-        </div>
+        <VehicleFormFields form={form} setForm={setForm} update={update} updateUpper={updateUpper} mobileError={mobileError} setMobileError={setMobileError} />
         <div className="flex gap-2 mt-5">
           <button type="button" onClick={onClose} className="flex-1 rounded-[4px] border border-[#2A323D] py-2 text-sm text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors">Cancel</button>
           <button type="submit" className="flex-1 rounded-[4px] bg-[#4C8CF5] py-2 text-sm font-semibold text-[#08111F] hover:bg-[#659BF7] transition-colors">Create trip</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function EditVehicleModal({ vehicle, onClose, onSave }) {
+  const [form, setForm] = useState({
+    vehicleNumber: vehicle.vehicleNumber || "",
+    driver: vehicle.driver || "",
+    mobile: vehicle.mobile && vehicle.mobile !== "—" ? vehicle.mobile : "",
+    vendor: vehicle.vendor || "",
+    transporter: vehicle.transporter || "",
+    material: vehicle.material || MATERIALS[0],
+    po: vehicle.po || "",
+    invoiceNo: vehicle.invoiceNo || "",
+    destination: vehicle.destination || DESTINATIONS[0],
+    partyNetWeight: vehicle.partyNetWeight != null ? String(vehicle.partyNetWeight) : "",
+  });
+  const [mobileError, setMobileError] = useState("");
+  const update = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const updateUpper = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value.toUpperCase() }));
+  const submit = (e) => {
+    e.preventDefault();
+    if (form.mobile && !/^\d{10}$/.test(form.mobile)) {
+      setMobileError("Mobile number must be exactly 10 digits.");
+      return;
+    }
+    setMobileError("");
+    onSave(form);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 overflow-y-auto">
+      <form onSubmit={submit} className="w-full max-w-md rounded-[8px] border border-[#2A323D] bg-[#14181E] p-5 shadow-2xl my-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-[Barlow_Condensed] text-[20px] font-bold text-[#EDF1F5] tracking-wide">Edit trip details</h3>
+          <button type="button" onClick={onClose} className="text-[#6B7686] hover:text-[#EDF1F5]"><X size={18} /></button>
+        </div>
+        <VehicleFormFields form={form} setForm={setForm} update={update} updateUpper={updateUpper} mobileError={mobileError} setMobileError={setMobileError} />
+        <div className="flex gap-2 mt-5">
+          <button type="button" onClick={onClose} className="flex-1 rounded-[4px] border border-[#2A323D] py-2 text-sm text-[#8A93A3] hover:text-[#EDF1F5] hover:border-[#3A4451] transition-colors">Cancel</button>
+          <button type="submit" className="flex-1 rounded-[4px] bg-[#4C8CF5] py-2 text-sm font-semibold text-[#08111F] hover:bg-[#659BF7] transition-colors">Save changes</button>
         </div>
       </form>
     </div>
@@ -576,7 +627,7 @@ function ActionButtons({ vehicle, role, onAdvance, onFlag, onClearFlag, compact 
   );
 }
 
-function DetailDrawer({ vehicle, role, now, onClose, onAdvance, onFlag, onClearFlag }) {
+function DetailDrawer({ vehicle, role, now, canEdit, onClose, onEdit, onAdvance, onFlag, onClearFlag }) {
   if (!vehicle) return null;
   const sc = statusColor(vehicle.status);
 
@@ -588,7 +639,12 @@ function DetailDrawer({ vehicle, role, now, onClose, onAdvance, onFlag, onClearF
             <div className="font-mono text-[20px] font-bold text-[#EDF1F5] tracking-wider">{vehicle.vehicleNumber}</div>
             <div className="text-[12px] text-[#6B7686]">ID: {vehicle.id}</div>
           </div>
-          <button onClick={onClose} className="text-[#6B7686] hover:text-[#EDF1F5]"><X size={20} /></button>
+          <div className="flex items-center gap-3">
+            {canEdit && (
+              <button onClick={() => onEdit(vehicle)} className="text-[12px] font-semibold text-[#4C8CF5] hover:text-[#659BF7]">Edit</button>
+            )}
+            <button onClick={onClose} className="text-[#6B7686] hover:text-[#EDF1F5]"><X size={20} /></button>
+          </div>
         </div>
         <div className="p-5">
           <div className="relative rounded-[8px] border border-[#242B34] bg-[#161B22] p-4 mb-5">
@@ -1006,6 +1062,7 @@ const ACTION_LABELS = {
   "Refill Pending": "Sent for refill",
   Flagged: "Flagged",
   "Flag Cleared": "Cleared flag",
+  "Trip Details Edited": "Trip details edited",
 };
 
 function HistoryView({ vehicles, roleFilter }) {
@@ -1245,6 +1302,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
   const [search, setSearch] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState(null);
   const [weighRequest, setWeighRequest] = useState(null);
   const [supervisorRequest, setSupervisorRequest] = useState(null);
   const [yardAssignRequest, setYardAssignRequest] = useState(null);
@@ -1367,6 +1425,29 @@ function Dashboard({ actualRole, profile, onLogout }) {
     }
     setShowAddModal(false);
   }, [role, profile]);
+
+  const handleEditVehicle = useCallback(async (form) => {
+    if (!editingVehicle) return;
+    const at = Date.now();
+    const actor = role === "Admin" ? actualRole : role;
+    const update = {
+      vehicle_number: form.vehicleNumber.toUpperCase(),
+      driver: form.driver || "Not specified",
+      mobile: form.mobile || "—",
+      vendor: form.vendor,
+      transporter: form.transporter,
+      material: form.material,
+      po: form.po || editingVehicle.po,
+      invoice_no: form.invoiceNo || null,
+      destination: form.destination,
+      party_net_weight: form.partyNetWeight ? Number(form.partyNetWeight) : null,
+      history: [...(editingVehicle.history || []), { status: "Trip Details Edited", at, role: actor, outcome: "approved" }],
+    };
+    const { data, error } = await supabase.from("vehicles").update(update).eq("id", editingVehicle.id).select();
+    if (error) setConnectionError(error.message);
+    else if (data && data[0]) setVehicles((vs) => vs.map((v) => (v.id === data[0].id ? rowToVehicle(data[0]) : v)));
+    setEditingVehicle(null);
+  }, [editingVehicle, role, actualRole]);
 
   const handleAdvance = useCallback(async (vehicle, action) => {
     if (action.type === "secondWeigh") {
@@ -1745,6 +1826,8 @@ function Dashboard({ actualRole, profile, onLogout }) {
           vehicle={vehicles.find((v) => v.id === selectedVehicle.id) || selectedVehicle}
           role={role}
           now={now}
+          canEdit={role === "Vendor" || isAdmin}
+          onEdit={setEditingVehicle}
           onClose={() => setSelectedVehicle(null)}
           onAdvance={handleAdvance}
           onFlag={handleFlag}
@@ -1752,6 +1835,7 @@ function Dashboard({ actualRole, profile, onLogout }) {
         />
       )}
       {showAddModal && <AddVehicleModal onClose={() => setShowAddModal(false)} onCreate={handleCreate} />}
+      {editingVehicle && <EditVehicleModal vehicle={editingVehicle} onClose={() => setEditingVehicle(null)} onSave={handleEditVehicle} />}
       <WeighInModal request={weighRequest} onClose={() => setWeighRequest(null)} onSubmit={handleWeighSubmit} />
       <AssignSupervisorModal request={supervisorRequest} onClose={() => setSupervisorRequest(null)} onSubmit={handleSupervisorSubmit} />
       <AssignYardModal request={yardAssignRequest} onClose={() => setYardAssignRequest(null)} onSubmit={handleAssignYardSubmit} />
