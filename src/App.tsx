@@ -18,7 +18,7 @@ import { initPushNotifications, setPushUser } from "./push";
 
 const ROLES = ["Vendor", "Security", "Yard Supervisor", "Yard Incharge", "Weighbridge Operator", "QC", "Admin"];
 
-const VENDORS = ["Bajaj", "Tata Motors", "Mahindra", "GE", "Hyundai", "A Rank", "Others"];
+const VENDORS = ["Hyundai", "A Rank"];
 const TRANSPORTERS = ["Self / Own Vehicle", "Balaji Transport", "Shree Ram Transport"];
 const MATERIALS = ["Copper", "Stainless Steel", "Scrap", "Aluminium", "CRC"];
 // Only Nanekarwadi is live for now — re-add the others here when ready.
